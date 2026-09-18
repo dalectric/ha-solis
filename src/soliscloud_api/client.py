@@ -81,9 +81,13 @@ class SolisCloudClient:
         self._max_attempts = max_attempts
         self._limiter = _RateLimiter()
         self._base_url = str(s.solis_url).rstrip("/")
+        # Applied per request, not on the client. A caller-supplied client carries its
+        # own timeout -- Home Assistant's shared client uses httpx's 5s default, which
+        # is far below this API's ~16s median and would time out on every call.
+        self._timeout = s.solis_timeout
         self._owns_client = client is None
-        # No base_url: endpoints are joined explicitly below, so a caller-supplied
-        # client (Home Assistant's shared one, which has no base_url) works unchanged.
+        # No base_url either: endpoints are joined explicitly below, so a client with
+        # no base_url works unchanged.
         self._client = client or httpx.AsyncClient(timeout=s.solis_timeout)
         # Populated on every request so `probe` can show exactly what was signed.
         self.last_request_debug: dict[str, str] = {}
@@ -112,7 +116,12 @@ class SolisCloudClient:
         }
 
         try:
-            response = await self._client.post(f"{self._base_url}{endpoint}", content=body_str, headers=headers)
+            response = await self._client.post(
+                f"{self._base_url}{endpoint}",
+                content=body_str,
+                headers=headers,
+                timeout=self._timeout,
+            )
         except httpx.TimeoutException as err:
             raise SolisTransportError(f"timed out: {err}", endpoint) from err
         except httpx.HTTPError as err:

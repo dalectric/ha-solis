@@ -319,3 +319,37 @@ class TestRetryBackoff:
                 await client.inverter_list()
 
         assert slept and slept[0] < RATE_LIMIT_PERIOD
+
+
+class TestTimeoutIsAppliedPerRequest:
+    """A caller-supplied client must not override the configured timeout.
+
+    Home Assistant's shared httpx client is built with no timeout, so it carries
+    httpx's 5s default -- well under this API's ~16s median. Setting the timeout only
+    when we construct our own client silently reduced every HA request to 5s and
+    surfaced as "cannot connect".
+    """
+
+    @respx.mock
+    async def test_timeout_honoured_with_an_injected_client(self):
+        respx.post(LIST_URL).mock(return_value=httpx.Response(200, json=INVERTER_LIST_RESPONSE))
+
+        injected = httpx.AsyncClient(timeout=5.0)  # mirrors Home Assistant's shared client
+        settings = Settings(solis_id="test-id", solis_secret="test-secret", solis_url=BASE, solis_timeout=60.0)
+        try:
+            client = SolisCloudClient(settings=settings, client=injected, max_attempts=1)
+            await client.inverter_list()
+        finally:
+            await injected.aclose()
+
+        sent = respx.calls[0].request.extensions["timeout"]
+        assert sent["read"] == 60.0, f"request used {sent} instead of the configured 60s"
+
+    @respx.mock
+    async def test_timeout_honoured_with_an_owned_client(self):
+        respx.post(LIST_URL).mock(return_value=httpx.Response(200, json=INVERTER_LIST_RESPONSE))
+        settings = Settings(solis_id="test-id", solis_secret="test-secret", solis_url=BASE, solis_timeout=42.0)
+        async with SolisCloudClient(settings=settings, max_attempts=1) as client:
+            await client.inverter_list()
+
+        assert respx.calls[0].request.extensions["timeout"]["read"] == 42.0

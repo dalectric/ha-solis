@@ -16,8 +16,11 @@ DEFAULT_TIMEOUT_SECONDS = 60.0
 # The config-flow dialog must not appear frozen. One attempt, shorter timeout: with a
 # ~16s median the common case still succeeds, and a bad URL fails in 30s rather than
 # the ~184s that 3 retries at 60s would take.
-CONFIG_FLOW_TIMEOUT_SECONDS = 30.0
-CONFIG_FLOW_MAX_ATTEMPTS = 1
+# Measured: ~1 call in 4 exceeds 30s, so a single 30s attempt fails roughly a quarter
+# of the time. Two attempts at 45s is ~91s worst case -- long for a dialog, but far
+# better than telling the user it cannot connect when the API was merely slow.
+CONFIG_FLOW_TIMEOUT_SECONDS = 45.0
+CONFIG_FLOW_MAX_ATTEMPTS = 2
 
 # Each poll costs one inverterList call plus one inverterDetail per inverter, and the
 # API allows three calls per five seconds. Five minutes leaves ample headroom.
