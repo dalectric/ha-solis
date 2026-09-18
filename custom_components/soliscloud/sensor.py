@@ -40,19 +40,29 @@ _TOTAL = SensorStateClass.TOTAL_INCREASING
 class Flow(StrEnum):
     """What a positive value means in the raw SolisCloud payload.
 
-    SolisCloud mixes conventions: pac, psum and batteryPower are positive when the
-    component delivers power, while familyLoadPower is positive when it consumes.
-    Classifying each field lets the integration present one consistent system.
+    Each component is treated as a supplier to the house, so under the generator
+    convention positive means "this is feeding the system" and negative means "this is
+    drawing from it": PV generating, the battery discharging and the grid importing are
+    all positive; house load, battery charging and grid export are all negative.
+
+    SolisCloud does not follow that consistently, so every signed field is classified by
+    what its own raw positive means and normalised from there. Verified against a live
+    inverter with a 3.3 kW immersion load: house load 3111 W, PV 550 W, grid 0 W and
+    batteryPower -2771 W, so a raw negative batteryPower is the battery *discharging*.
     """
 
     NONE = "none"
     """Unsigned magnitude -- voltage, current, frequency, SOC, temperature."""
 
     DELIVERS = "delivers"
-    """Raw positive means power leaving the component (PV, export, discharge)."""
+    """Raw positive already means the component is supplying the system (PV)."""
 
     CONSUMES = "consumes"
-    """Raw positive means power entering the component (house load)."""
+    """Raw positive means the component is drawing from the system.
+
+    House load (consuming), batteryPower (charging) and psum (exporting to the grid)
+    all read positive when energy moves away from the house.
+    """
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -102,8 +112,9 @@ def _net_energy(key: str, name: str) -> SolisSensorDescription:
     """Signed net energy: a balance, not a meter reading.
 
     state_class TOTAL rather than TOTAL_INCREASING, because a net figure legitimately
-    falls whenever more is drawn than delivered. Flow.DELIVERS so it follows the
-    selected sign convention, unlike the one-way counters it is derived from.
+    falls whenever more is drawn than delivered. Flow.CONSUMES because the raw balance
+    is export minus import, so a raw positive is a net export -- energy leaving the
+    house, which reads negative under the generator convention.
     """
     return SolisSensorDescription(
         key=key,
@@ -111,7 +122,7 @@ def _net_energy(key: str, name: str) -> SolisSensorDescription:
         device_class=SensorDeviceClass.ENERGY,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         state_class=SensorStateClass.TOTAL,
-        flow=Flow.DELIVERS,
+        flow=Flow.CONSUMES,
     )
 
 
@@ -140,10 +151,10 @@ def _amps(key: str, name: str) -> SolisSensorDescription:
 SENSORS: tuple[SolisSensorDescription, ...] = (
     # Power
     _power("pac", "PV power"),
-    _power("p_sum", "Grid exchange power"),
+    _power("p_sum", "Grid exchange power", Flow.CONSUMES),
     _power("family_load_power", "House load", Flow.CONSUMES),
     _power("total_load_power", "Total load", Flow.CONSUMES),
-    _power("battery_power", "Battery power"),
+    _power("battery_power", "Battery power", Flow.CONSUMES),
     _power("bypass_load_power", "Backup load", Flow.CONSUMES),
     _power("pow1", "String 1 power"),
     _power("pow2", "String 2 power"),

@@ -113,11 +113,21 @@ runtime via the **Sign convention** entity or in the integration's options:
 | | Generator convention (default) | Load convention |
 |---|---|---|
 | also known as | active sign convention | passive sign convention |
-| positive means | power **produced** | power **consumed** |
+| positive means | the component **supplies** the house | the component **draws** from the house |
 | PV generating | `+` | `−` |
-| Grid | `+` exporting | `+` importing |
-| Battery | `+` discharging | `+` charging |
+| Battery | `+` discharging, `−` charging | `+` charging, `−` discharging |
+| Grid | `+` importing, `−` exporting | `+` exporting, `−` importing |
 | House load | `−` | `+` |
+
+Every component is treated as a supplier to the house, so under the generator
+convention a positive reading always means "this is feeding the system" and a negative
+one means "this is drawing from it".
+
+The raw signs were established by measurement, not assumption. With a 3.3 kW immersion
+running: house load 3111 W, PV 550 W, grid 0 W and `batteryPower` −2771 W — the battery
+was the only possible source, so a raw negative `batteryPower` is the battery
+*discharging*. Confirmed again while charging, with `storageBatteryCurrent` +5.7 A and
+PV 533 W against a 197 W house load.
 
 The two are exact negations (`p′ = −p`). Generator convention is the default because it
 matches the API's native signs for PV, grid and battery — or as the reference puts it,

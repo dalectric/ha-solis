@@ -184,22 +184,23 @@ class TestSignConvention:
             if d.key in {"pac", "p_sum", "battery_power", "family_load_power", "e_today", "grid_purchased_today_energy"}
         }
 
-    def test_generator_convention_positive_means_produced(self):
+    def test_generator_convention_positive_means_supplying(self):
+        """Positive = the component feeds the house; negative = it draws from it."""
         from soliscloud.const import SIGN_CONVENTION_GENERATOR
 
         v = self._values(SIGN_CONVENTION_GENERATOR)
         assert v["pac"] == 1369.0, "PV generating must be positive"
-        assert v["p_sum"] == 1156.0, "exporting must be positive"
-        assert v["battery_power"] == -37.0, "charging must be negative"
+        assert v["p_sum"] == -1156.0, "exporting to the grid must be negative"
+        assert v["battery_power"] == 37.0, "discharging must be positive"
         assert v["family_load_power"] == -190.0, "consuming must be negative"
 
-    def test_load_convention_positive_means_consumed(self):
+    def test_load_convention_positive_means_drawing(self):
         from soliscloud.const import SIGN_CONVENTION_LOAD
 
         v = self._values(SIGN_CONVENTION_LOAD)
-        assert v["pac"] == -1369.0, "PV only produces, so it is negative under the load convention"
-        assert v["p_sum"] == -1156.0, "exporting must be negative"
-        assert v["battery_power"] == 37.0, "charging must be positive"
+        assert v["pac"] == -1369.0, "PV only supplies, so it is negative under the load convention"
+        assert v["p_sum"] == 1156.0, "exporting to the grid must be positive"
+        assert v["battery_power"] == -37.0, "discharging must be negative"
         assert v["family_load_power"] == 190.0, "consuming must be positive"
 
     def test_the_two_conventions_are_exact_negations(self):
@@ -320,7 +321,7 @@ class TestSensorTable:
         assert net, "no grid exchange sensors found"
         for d in net:
             assert d.state_class is SensorStateClass.TOTAL, d.key
-            assert d.flow is Flow.DELIVERS, d.key
+            assert d.flow is Flow.CONSUMES, d.key
 
     def test_one_way_counters_stay_unsigned_and_increasing(self):
         from homeassistant.components.sensor import SensorStateClass
@@ -363,22 +364,33 @@ class TestGridExchange:
         description = next(d for d in SENSORS if d.key == key)
         return SolisSensor(coordinator, "SN1", description).native_value
 
-    def test_net_is_export_minus_import_after_unit_normalisation(self):
+    def test_net_export_reads_negative_under_the_generator_convention(self):
+        """Energy sent to the grid leaves the house, so it draws: negative."""
         from soliscloud.const import SIGN_CONVENTION_GENERATOR
 
-        assert self._value("grid_exchange_today_energy", SIGN_CONVENTION_GENERATOR) == 6.24 - 3.03
+        assert self._value("grid_exchange_today_energy", SIGN_CONVENTION_GENERATOR) == -3.21
         # MWh normalised to kWh before netting, not after.
-        assert self._value("grid_exchange_total_energy", SIGN_CONVENTION_GENERATOR) == 5153.0 - 2117.0
+        assert self._value("grid_exchange_total_energy", SIGN_CONVENTION_GENERATOR) == -3036.0
+
+    def test_balance_is_rounded_to_whole_watt_hours(self):
+        """6.24 - 3.03 is 3.2100000000000004 in binary floating point.
+
+        Unrounded, that reaches the dashboard verbatim.
+        """
+        from soliscloud.const import SIGN_CONVENTION_GENERATOR
+
+        value = self._value("grid_exchange_today_energy", SIGN_CONVENTION_GENERATOR)
+        assert value == round(value, 3), f"{value} carries floating point noise"
 
     def test_balance_follows_the_sign_convention(self):
         from soliscloud.const import SIGN_CONVENTION_GENERATOR, SIGN_CONVENTION_LOAD
 
         generator = self._value("grid_exchange_today_energy", SIGN_CONVENTION_GENERATOR)
         load = self._value("grid_exchange_today_energy", SIGN_CONVENTION_LOAD)
-        assert generator > 0, "net export must be positive under the generator convention"
+        assert generator < 0, "net export must be negative under the generator convention"
         assert load == -generator, "the conventions must be exact negations"
 
-    def test_net_import_is_negative_under_the_generator_convention(self):
+    def test_net_import_is_positive_under_the_generator_convention(self):
         from soliscloud.const import SIGN_CONVENTION_GENERATOR
         from soliscloud.sensor import SENSORS, SolisSensor
         from soliscloud.soliscloud_api.models import InverterDetail
@@ -386,7 +398,7 @@ class TestGridExchange:
         raw = self.RAW | {"gridPurchasedTodayEnergy": 9.0, "gridSellTodayEnergy": 1.0}
         coordinator = _coordinator({"SN1": InverterDetail.model_validate(raw)}, SIGN_CONVENTION_GENERATOR)
         d = next(x for x in SENSORS if x.key == "grid_exchange_today_energy")
-        assert SolisSensor(coordinator, "SN1", d).native_value == -8.0
+        assert SolisSensor(coordinator, "SN1", d).native_value == 8.0
 
     def test_missing_side_yields_unknown_rather_than_a_wrong_balance(self):
         from soliscloud.const import SIGN_CONVENTION_GENERATOR

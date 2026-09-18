@@ -173,7 +173,9 @@ def _net(delivered: float | None, drawn: float | None) -> float | None:
     """
     if delivered is None or drawn is None:
         return None
-    return delivered - drawn
+    # Rounded to 1 Wh: subtracting two floats otherwise yields noise such as
+    # 2.1500000000000004, which reaches the dashboard verbatim.
+    return round(delivered - drawn, 3)
 
 
 class _GridExchangeMixin:
