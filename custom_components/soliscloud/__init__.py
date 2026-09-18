@@ -11,8 +11,10 @@ from .const import (
     CONF_KEY_ID,
     CONF_KEY_SECRET,
     CONF_SCAN_INTERVAL_MINUTES,
+    CONF_SIGN_CONVENTION,
     CONF_URL,
     DEFAULT_SCAN_INTERVAL_MINUTES,
+    DEFAULT_SIGN_CONVENTION,
     DEFAULT_TIMEOUT_SECONDS,
     DEFAULT_URL,
     DOMAIN,
@@ -21,7 +23,7 @@ from .coordinator import SolisCoordinator
 from .soliscloud_api.client import SolisCloudClient
 from .soliscloud_api.settings import Settings
 
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.SELECT, Platform.SENSOR]
 
 type SolisConfigEntry = ConfigEntry[SolisCoordinator]
 
@@ -48,7 +50,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: SolisConfigEntry) -> boo
         CONF_SCAN_INTERVAL_MINUTES,
         entry.data.get(CONF_SCAN_INTERVAL_MINUTES, DEFAULT_SCAN_INTERVAL_MINUTES),
     )
-    coordinator = SolisCoordinator(hass, entry, client, interval)
+    convention = entry.options.get(
+        CONF_SIGN_CONVENTION,
+        entry.data.get(CONF_SIGN_CONVENTION, DEFAULT_SIGN_CONVENTION),
+    )
+    coordinator = SolisCoordinator(hass, entry, client, interval, convention)
 
     # Registered before anything can fail, so the client is released whether setup
     # succeeds, the first refresh raises, or platform setup raises.
@@ -68,6 +74,22 @@ async def async_unload_entry(hass: HomeAssistant, entry: SolisConfigEntry) -> bo
 
 
 async def _async_reload_entry(hass: HomeAssistant, entry: SolisConfigEntry) -> None:
+    """Reload only when something that needs it changed.
+
+    Flipping the sign convention is applied in place by the select entity, so
+    reloading for it would re-poll a slow API for no reason.
+    """
+    coordinator = entry.runtime_data
+    convention = entry.options.get(CONF_SIGN_CONVENTION, DEFAULT_SIGN_CONVENTION)
+    interval_minutes = entry.options.get(CONF_SCAN_INTERVAL_MINUTES, DEFAULT_SCAN_INTERVAL_MINUTES)
+
+    if (
+        convention == coordinator.sign_convention
+        and coordinator.update_interval is not None
+        and interval_minutes == coordinator.update_interval.total_seconds() / 60
+    ):
+        return
+
     await hass.config_entries.async_reload(entry.entry_id)
 
 

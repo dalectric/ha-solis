@@ -108,6 +108,35 @@ The build step vendors the client into the component because this repo has no pu
 package yet. Once it is on GitHub, that can become a single manifest entry:
 `"requirements": ["ha-solis @ git+https://github.com/dalectric/ha-solis@main"]`.
 
+## Sign convention (Zählpfeilsystem)
+
+SolisCloud is not internally consistent about signs. Measured on a live inverter:
+`pac=+1.369 kW` while generating, `psum=+1.156 kW` while exporting and
+`batteryPower=-0.037 kW` while charging all follow the generator convention, but
+`familyLoadPower=+0.19 kW` while consuming follows the consumer one.
+
+This integration normalises every signed power sensor onto one
+[Zählpfeilsystem](https://de.wikipedia.org/wiki/Zählpfeil), selectable at runtime via
+the **Sign convention** entity or in the integration's options:
+
+| | Erzeugerzählpfeilsystem (EZS, default) | Verbraucherzählpfeilsystem (VZS) |
+|---|---|---|
+| positive means | power **delivered** | power **consumed** |
+| PV generating | `+` | `−` |
+| Grid | `+` exporting | `+` importing |
+| Battery | `+` discharging | `+` charging |
+| House load | `−` | `+` |
+
+The two are exact negations (`p′ = −p`), as the standard defines.
+
+Cumulative **energy** counters are deliberately left positive in both systems. They are
+not signed quantities but separate one-way meters (kWh imported, kWh exported), and
+Home Assistant's Energy dashboard requires `total_increasing` sensors to stay positive
+and monotonic.
+
+The selector's attributes spell out what positive currently means for grid, battery
+and PV, so the active convention is readable from a template or dashboard.
+
 ## What this handles that a naive client does not
 
 Behaviour measured against the live API, not assumed:

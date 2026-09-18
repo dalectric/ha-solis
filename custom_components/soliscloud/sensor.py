@@ -6,6 +6,9 @@ attribute name on InverterDetail. Adding a sensor is a single line.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import StrEnum
+
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -27,25 +30,64 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import SolisConfigEntry
-from .const import DOMAIN
+from .const import DOMAIN, SIGN_CONVENTION_GENERATOR
 from .coordinator import SolisCoordinator
 
 _MEASURE = SensorStateClass.MEASUREMENT
 _TOTAL = SensorStateClass.TOTAL_INCREASING
 
 
-def _power(key: str, name: str) -> SensorEntityDescription:
-    return SensorEntityDescription(
+class Flow(StrEnum):
+    """What a positive value means in the raw SolisCloud payload.
+
+    SolisCloud mixes conventions: pac, psum and batteryPower are positive when the
+    component delivers power, while familyLoadPower is positive when it consumes.
+    Classifying each field lets the integration present one consistent system.
+    """
+
+    NONE = "none"
+    """Unsigned magnitude -- voltage, current, frequency, SOC, temperature."""
+
+    DELIVERS = "delivers"
+    """Raw positive means power leaving the component (PV, export, discharge)."""
+
+    CONSUMES = "consumes"
+    """Raw positive means power entering the component (house load)."""
+
+
+@dataclass(frozen=True, kw_only=True)
+class SolisSensorDescription(SensorEntityDescription):
+    flow: Flow = Flow.NONE
+
+
+def sign_multiplier(flow: Flow, convention: str) -> int:
+    """Factor converting a raw value into the chosen Zaehlpfeilsystem.
+
+    Cumulative energy counters are deliberately Flow.NONE. They are not signed
+    quantities but two separate one-way meters (kWh imported, kWh exported), and
+    Home Assistant's Energy dashboard requires total_increasing sensors to stay
+    positive and monotonic.
+    """
+    if flow is Flow.NONE:
+        return 1
+    # Normalise to EZS first: positive means the component delivers power.
+    to_ezs = 1 if flow is Flow.DELIVERS else -1
+    return to_ezs if convention == SIGN_CONVENTION_GENERATOR else -to_ezs
+
+
+def _power(key: str, name: str, flow: Flow = Flow.DELIVERS) -> SolisSensorDescription:
+    return SolisSensorDescription(
         key=key,
         name=name,
         device_class=SensorDeviceClass.POWER,
         native_unit_of_measurement=UnitOfPower.WATT,
         state_class=_MEASURE,
+        flow=flow,
     )
 
 
-def _energy(key: str, name: str) -> SensorEntityDescription:
-    return SensorEntityDescription(
+def _energy(key: str, name: str) -> SolisSensorDescription:
+    return SolisSensorDescription(
         key=key,
         name=name,
         device_class=SensorDeviceClass.ENERGY,
@@ -54,8 +96,8 @@ def _energy(key: str, name: str) -> SensorEntityDescription:
     )
 
 
-def _volts(key: str, name: str) -> SensorEntityDescription:
-    return SensorEntityDescription(
+def _volts(key: str, name: str) -> SolisSensorDescription:
+    return SolisSensorDescription(
         key=key,
         name=name,
         device_class=SensorDeviceClass.VOLTAGE,
@@ -65,8 +107,8 @@ def _volts(key: str, name: str) -> SensorEntityDescription:
     )
 
 
-def _amps(key: str, name: str) -> SensorEntityDescription:
-    return SensorEntityDescription(
+def _amps(key: str, name: str) -> SolisSensorDescription:
+    return SolisSensorDescription(
         key=key,
         name=name,
         device_class=SensorDeviceClass.CURRENT,
@@ -76,14 +118,14 @@ def _amps(key: str, name: str) -> SensorEntityDescription:
     )
 
 
-SENSORS: tuple[SensorEntityDescription, ...] = (
+SENSORS: tuple[SolisSensorDescription, ...] = (
     # Power
     _power("pac", "PV power"),
     _power("p_sum", "Grid power"),
-    _power("family_load_power", "House load"),
-    _power("total_load_power", "Total load"),
+    _power("family_load_power", "House load", Flow.CONSUMES),
+    _power("total_load_power", "Total load", Flow.CONSUMES),
     _power("battery_power", "Battery power"),
-    _power("bypass_load_power", "Backup load"),
+    _power("bypass_load_power", "Backup load", Flow.CONSUMES),
     _power("pow1", "String 1 power"),
     _power("pow2", "String 2 power"),
     _power("pow3", "String 3 power"),
@@ -106,14 +148,14 @@ SENSORS: tuple[SensorEntityDescription, ...] = (
     _energy("battery_total_charge_energy", "Battery charged total"),
     _energy("battery_total_discharge_energy", "Battery discharged total"),
     # Battery state
-    SensorEntityDescription(
+    SolisSensorDescription(
         key="battery_capacity_soc",
         name="Battery",
         device_class=SensorDeviceClass.BATTERY,
         native_unit_of_measurement=PERCENTAGE,
         state_class=_MEASURE,
     ),
-    SensorEntityDescription(
+    SolisSensorDescription(
         key="battery_health_soh",
         name="Battery health",
         native_unit_of_measurement=PERCENTAGE,
@@ -123,14 +165,14 @@ SENSORS: tuple[SensorEntityDescription, ...] = (
     _volts("battery_voltage", "Battery voltage"),
     _amps("battery_current", "Battery current"),
     # Inverter
-    SensorEntityDescription(
+    SolisSensorDescription(
         key="inverter_temperature",
         name="Inverter temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         state_class=_MEASURE,
     ),
-    SensorEntityDescription(
+    SolisSensorDescription(
         key="fac",
         name="Grid frequency",
         device_class=SensorDeviceClass.FREQUENCY,
@@ -138,7 +180,7 @@ SENSORS: tuple[SensorEntityDescription, ...] = (
         state_class=_MEASURE,
         entity_registry_enabled_default=False,
     ),
-    SensorEntityDescription(
+    SolisSensorDescription(
         key="data_timestamp",
         name="Last reading",
         device_class=SensorDeviceClass.TIMESTAMP,
@@ -176,7 +218,7 @@ async def async_setup_entry(
 class SolisSensor(CoordinatorEntity[SolisCoordinator], SensorEntity):
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator: SolisCoordinator, serial: str, description: SensorEntityDescription) -> None:
+    def __init__(self, coordinator: SolisCoordinator, serial: str, description: SolisSensorDescription) -> None:
         super().__init__(coordinator)
         self.entity_description = description
         self._serial = serial
@@ -195,6 +237,12 @@ class SolisSensor(CoordinatorEntity[SolisCoordinator], SensorEntity):
     @property
     def native_value(self):
         inverter = self.coordinator.data.get(self._serial)
+        if inverter is None:
+            return None
         # None propagates deliberately: a field the API omitted shows as `unknown`
         # rather than a plausible-looking zero.
-        return None if inverter is None else getattr(inverter, self.entity_description.key, None)
+        value = getattr(inverter, self.entity_description.key, None)
+        if value is None:
+            return None
+        factor = sign_multiplier(self.entity_description.flow, self.coordinator.sign_convention)
+        return value if factor == 1 else value * factor

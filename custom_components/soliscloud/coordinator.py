@@ -26,6 +26,7 @@ class SolisCoordinator(DataUpdateCoordinator[dict[str, InverterDetail]]):
         entry: ConfigEntry,
         client: SolisCloudClient,
         interval_minutes: int,
+        sign_convention: str,
     ) -> None:
         super().__init__(
             hass,
@@ -36,6 +37,9 @@ class SolisCoordinator(DataUpdateCoordinator[dict[str, InverterDetail]]):
             update_interval=timedelta(minutes=interval_minutes),
         )
         self.client = client
+        # Held here rather than read from the entry on every state read, so the select
+        # entity can flip it and push new states without reloading and re-polling.
+        self.sign_convention = sign_convention
 
     async def _async_update_data(self) -> dict[str, InverterDetail]:
         try:

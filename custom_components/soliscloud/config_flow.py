@@ -13,13 +13,16 @@ from .const import (
     CONF_KEY_ID,
     CONF_KEY_SECRET,
     CONF_SCAN_INTERVAL_MINUTES,
+    CONF_SIGN_CONVENTION,
     CONF_URL,
     CONFIG_FLOW_MAX_ATTEMPTS,
     CONFIG_FLOW_TIMEOUT_SECONDS,
     DEFAULT_SCAN_INTERVAL_MINUTES,
+    DEFAULT_SIGN_CONVENTION,
     DEFAULT_URL,
     DOMAIN,
     MIN_SCAN_INTERVAL_MINUTES,
+    SIGN_CONVENTIONS,
 )
 from .soliscloud_api.client import SolisCloudClient
 from .soliscloud_api.errors import (
@@ -109,12 +112,17 @@ class SolisCloudOptionsFlow(OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(data=user_input)
 
-        current = self.config_entry.options.get(CONF_SCAN_INTERVAL_MINUTES, DEFAULT_SCAN_INTERVAL_MINUTES)
+        options = self.config_entry.options
+        interval = options.get(CONF_SCAN_INTERVAL_MINUTES, DEFAULT_SCAN_INTERVAL_MINUTES)
+        convention = options.get(CONF_SIGN_CONVENTION, DEFAULT_SIGN_CONVENTION)
         schema = vol.Schema(
             {
-                vol.Required(CONF_SCAN_INTERVAL_MINUTES, default=current): vol.All(
+                vol.Required(CONF_SCAN_INTERVAL_MINUTES, default=interval): vol.All(
                     int, vol.Range(min=MIN_SCAN_INTERVAL_MINUTES)
-                )
+                ),
+                # Also exposed as a select entity, so it can be flipped from a
+                # dashboard without opening this dialog.
+                vol.Required(CONF_SIGN_CONVENTION, default=convention): vol.In(SIGN_CONVENTIONS),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)
