@@ -409,3 +409,43 @@ class TestGridExchange:
         coordinator = _coordinator({"SN1": InverterDetail.model_validate(raw)}, SIGN_CONVENTION_GENERATOR)
         d = next(x for x in SENSORS if x.key == "grid_exchange_today_energy")
         assert SolisSensor(coordinator, "SN1", d).native_value is None
+
+
+class TestDisplayPrecision:
+    """Daily energy to 0.1 kWh, longer periods to whole kWh."""
+
+    def test_daily_energy_shows_one_decimal(self):
+        from homeassistant.components.sensor import SensorDeviceClass
+        from soliscloud.sensor import SENSORS
+
+        daily = [d for d in SENSORS if d.device_class is SensorDeviceClass.ENERGY and "today" in d.key]
+        assert daily
+        for d in daily:
+            assert d.suggested_display_precision == 1, d.key
+
+    def test_longer_periods_show_no_decimals(self):
+        from homeassistant.components.sensor import SensorDeviceClass
+        from soliscloud.sensor import SENSORS
+
+        periods = [d for d in SENSORS if d.device_class is SensorDeviceClass.ENERGY and "today" not in d.key]
+        assert periods
+        for d in periods:
+            assert d.suggested_display_precision == 0, d.key
+
+    def test_precision_is_display_only(self):
+        """Statistics keep the full value; only the rendered figure is shortened."""
+        from soliscloud.const import SIGN_CONVENTION_GENERATOR
+        from soliscloud.sensor import SENSORS, SolisSensor
+        from soliscloud.soliscloud_api.models import InverterDetail
+
+        raw = {
+            "id": "1",
+            "sn": "SN1",
+            "stationId": "S",
+            "state": 1,
+            "gridSellTodayEnergy": 0.04,
+            "gridSellTodayEnergyStr": "kWh",
+        }
+        coordinator = _coordinator({"SN1": InverterDetail.model_validate(raw)}, SIGN_CONVENTION_GENERATOR)
+        d = next(x for x in SENSORS if x.key == "grid_sell_today_energy")
+        assert SolisSensor(coordinator, "SN1", d).native_value == 0.04

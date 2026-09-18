@@ -36,6 +36,21 @@ from .coordinator import SolisCoordinator
 _MEASURE = SensorStateClass.MEASUREMENT
 _TOTAL = SensorStateClass.TOTAL_INCREASING
 
+# Display precision only: Home Assistant keeps the full value for long-term
+# statistics, and either can be overridden per entity in the UI.
+DAILY_ENERGY_PRECISION = 1
+PERIOD_ENERGY_PRECISION = 0
+
+
+def _energy_precision(key: str) -> int:
+    """Daily figures to 0.1 kWh; month, year and lifetime totals to whole kWh.
+
+    A daily figure is small enough that a tenth matters. On a four-digit lifetime total
+    a decimal is noise, and the source only reports three significant figures there
+    anyway (7.35 MWh arrives as 7350, not 7350.4).
+    """
+    return DAILY_ENERGY_PRECISION if "today" in key else PERIOD_ENERGY_PRECISION
+
 
 class Flow(StrEnum):
     """What a positive value means in the raw SolisCloud payload.
@@ -105,6 +120,7 @@ def _energy(key: str, name: str) -> SolisSensorDescription:
         device_class=SensorDeviceClass.ENERGY,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         state_class=_TOTAL,
+        suggested_display_precision=_energy_precision(key),
     )
 
 
@@ -123,6 +139,7 @@ def _net_energy(key: str, name: str) -> SolisSensorDescription:
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         state_class=SensorStateClass.TOTAL,
         flow=Flow.CONSUMES,
+        suggested_display_precision=_energy_precision(key),
     )
 
 

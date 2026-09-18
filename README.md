@@ -154,6 +154,15 @@ signed quantities but separate one-way meters (kWh imported, kWh exported), and 
 Assistant's Energy dashboard requires `total_increasing` sensors to stay positive and
 monotonic.
 
+### Display precision
+
+Energy is rendered to one decimal for daily figures and whole kWh for month, year and
+lifetime totals — a tenth matters on a day's output, but is noise on a four-digit total
+that the API only reports to three significant figures anyway.
+
+This is display only: Home Assistant keeps the full value for long-term statistics, and
+you can override it per entity in the UI.
+
 The selector's attributes spell out what positive currently means for grid, battery and
 PV, so the active convention is readable from a template or dashboard.
 
