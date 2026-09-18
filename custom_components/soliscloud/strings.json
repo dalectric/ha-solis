@@ -32,7 +32,7 @@
           "sign_convention": "Sign convention"
         },
         "data_description": {
-          "sign_convention": "Zählpfeilsystem for signed power sensors. EZS: positive means power delivered (generating, exporting, discharging). VZS: positive means power consumed (importing, charging). Cumulative energy counters stay positive either way."
+          "sign_convention": "Sign convention for signed power sensors. Generator convention: positive means power produced (generating, exporting, discharging). Load convention: positive means power consumed (importing, charging). Cumulative energy counters stay positive either way."
         }
       }
     }
@@ -42,8 +42,8 @@
       "sign_convention": {
         "name": "Sign convention",
         "state": {
-          "generator": "Erzeugerzählpfeilsystem (EZS) — positive = delivered",
-          "consumer": "Verbraucherzählpfeilsystem (VZS) — positive = consumed"
+          "generator": "Generator convention — positive = produced",
+          "load": "Load convention — positive = consumed"
         }
       }
     }

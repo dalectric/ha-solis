@@ -1,7 +1,9 @@
 """Sign convention selector.
 
-Exposes which Zaehlpfeilsystem the power sensors currently use, and lets it be
-changed from the UI. The entity's state is the indicator and the control at once.
+Exposes which sign convention the power sensors currently use, and lets it be changed
+from the UI. The entity's state is the indicator and the control at once.
+
+https://en.wikipedia.org/wiki/Passive_sign_convention
 """
 
 from __future__ import annotations
@@ -15,7 +17,6 @@ from . import SolisConfigEntry
 from .const import (
     CONF_SIGN_CONVENTION,
     DOMAIN,
-    SIGN_CONVENTION_CONSUMER,
     SIGN_CONVENTION_GENERATOR,
     SIGN_CONVENTIONS,
 )
@@ -31,7 +32,7 @@ async def async_setup_entry(
 
 
 class SolisSignConventionSelect(CoordinatorEntity[SolisCoordinator], SelectEntity):
-    """Which Zaehlpfeilsystem the signed power sensors follow."""
+    """Which sign convention the signed power sensors follow."""
 
     _attr_has_entity_name = True
     _attr_name = "Sign convention"
@@ -59,16 +60,17 @@ class SolisSignConventionSelect(CoordinatorEntity[SolisCoordinator], SelectEntit
     def extra_state_attributes(self) -> dict[str, str]:
         generator = self.coordinator.sign_convention == SIGN_CONVENTION_GENERATOR
         return {
-            "system": "Erzeugerzaehlpfeilsystem (EZS)" if generator else "Verbraucherzaehlpfeilsystem (VZS)",
-            "positive_means": "power delivered" if generator else "power consumed",
+            "convention": "generator convention" if generator else "load convention",
+            "also_known_as": "active sign convention" if generator else "passive sign convention",
+            "positive_means": "power produced" if generator else "power consumed",
             "grid_positive": "exporting" if generator else "importing",
             "battery_positive": "discharging" if generator else "charging",
-            "pv_positive": "generating" if generator else "never (PV only delivers)",
+            "pv_positive": "generating" if generator else "never (PV only produces)",
             "note": (
                 "Applies to signed power sensors. Cumulative energy counters are one-way "
                 "meters and stay positive so the Energy dashboard keeps working."
             ),
-            "reference": "https://de.wikipedia.org/wiki/Zaehlpfeil",
+            "reference": "https://en.wikipedia.org/wiki/Passive_sign_convention",
         }
 
     async def async_select_option(self, option: str) -> None:
@@ -88,4 +90,4 @@ class SolisSignConventionSelect(CoordinatorEntity[SolisCoordinator], SelectEntit
         self.coordinator.async_update_listeners()
 
 
-__all__ = ["SIGN_CONVENTION_CONSUMER", "SolisSignConventionSelect", "async_setup_entry"]
+__all__ = ["SolisSignConventionSelect", "async_setup_entry"]

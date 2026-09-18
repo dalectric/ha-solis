@@ -146,7 +146,7 @@ class TestMultipleInverters:
 
 
 class TestSignConvention:
-    """Zaehlpfeilsystem handling -- https://de.wikipedia.org/wiki/Zaehlpfeil
+    """Sign convention handling -- https://en.wikipedia.org/wiki/Passive_sign_convention
 
     Figures are from a real inverterDetail payload: pac=1.369 kW while generating,
     psum=1.156 kW while exporting, batteryPower=-0.037 kW while charging and
@@ -184,7 +184,7 @@ class TestSignConvention:
             if d.key in {"pac", "p_sum", "battery_power", "family_load_power", "e_today", "grid_purchased_today_energy"}
         }
 
-    def test_generator_system_positive_means_delivered(self):
+    def test_generator_convention_positive_means_produced(self):
         from soliscloud.const import SIGN_CONVENTION_GENERATOR
 
         v = self._values(SIGN_CONVENTION_GENERATOR)
@@ -193,40 +193,40 @@ class TestSignConvention:
         assert v["battery_power"] == -37.0, "charging must be negative"
         assert v["family_load_power"] == -190.0, "consuming must be negative"
 
-    def test_consumer_system_positive_means_consumed(self):
-        from soliscloud.const import SIGN_CONVENTION_CONSUMER
+    def test_load_convention_positive_means_consumed(self):
+        from soliscloud.const import SIGN_CONVENTION_LOAD
 
-        v = self._values(SIGN_CONVENTION_CONSUMER)
-        assert v["pac"] == -1369.0, "PV only delivers, so it is negative in VZS"
+        v = self._values(SIGN_CONVENTION_LOAD)
+        assert v["pac"] == -1369.0, "PV only produces, so it is negative under the load convention"
         assert v["p_sum"] == -1156.0, "exporting must be negative"
         assert v["battery_power"] == 37.0, "charging must be positive"
         assert v["family_load_power"] == 190.0, "consuming must be positive"
 
-    def test_the_two_systems_are_exact_negations(self):
-        """p' = -p, per the Zaehlpfeil definition."""
-        from soliscloud.const import SIGN_CONVENTION_CONSUMER, SIGN_CONVENTION_GENERATOR
+    def test_the_two_conventions_are_exact_negations(self):
+        """p' = -p: the conventions are opposites."""
+        from soliscloud.const import SIGN_CONVENTION_GENERATOR, SIGN_CONVENTION_LOAD
 
         ezs = self._values(SIGN_CONVENTION_GENERATOR)
-        vzs = self._values(SIGN_CONVENTION_CONSUMER)
+        vzs = self._values(SIGN_CONVENTION_LOAD)
         for key in ("pac", "p_sum", "battery_power", "family_load_power"):
             assert vzs[key] == -ezs[key], key
 
-    def test_energy_counters_stay_positive_in_both_systems(self):
+    def test_energy_counters_stay_positive_in_both_conventions(self):
         """One-way meters, not signed quantities; flipping breaks total_increasing."""
-        from soliscloud.const import SIGN_CONVENTION_CONSUMER, SIGN_CONVENTION_GENERATOR
+        from soliscloud.const import SIGN_CONVENTION_GENERATOR, SIGN_CONVENTION_LOAD
 
-        for convention in (SIGN_CONVENTION_GENERATOR, SIGN_CONVENTION_CONSUMER):
+        for convention in (SIGN_CONVENTION_GENERATOR, SIGN_CONVENTION_LOAD):
             v = self._values(convention)
             assert v["e_today"] == 10.3
             assert v["grid_purchased_today_energy"] == 3.03
 
     def test_unsigned_sensors_are_never_flipped(self):
-        from soliscloud.const import SIGN_CONVENTION_CONSUMER
+        from soliscloud.const import SIGN_CONVENTION_LOAD
         from soliscloud.sensor import SENSORS, SolisSensor
         from soliscloud.soliscloud_api.models import InverterDetail
 
         raw = self.RAW | {"batteryCapacitySoc": 96.0, "inverterTemperature": 43.1, "uAc1": "230.5"}
-        coordinator = _coordinator({"SN1": InverterDetail.model_validate(raw)}, SIGN_CONVENTION_CONSUMER)
+        coordinator = _coordinator({"SN1": InverterDetail.model_validate(raw)}, SIGN_CONVENTION_LOAD)
         by_key = {d.key: d for d in SENSORS}
         for key, expected in (("battery_capacity_soc", 96.0), ("inverter_temperature", 43.1), ("u_ac1", 230.5)):
             assert SolisSensor(coordinator, "SN1", by_key[key]).native_value == expected, key
@@ -238,3 +238,35 @@ class TestSignConvention:
 
         missing = [d.key for d in SENSORS if d.device_class is SensorDeviceClass.POWER and d.flow is Flow.NONE]
         assert not missing, f"power sensors with no flow classification: {missing}"
+
+
+class TestSignConventionMigration:
+    """An entry saved before the rename must keep working."""
+
+    def test_legacy_consumer_value_maps_to_load(self):
+        from soliscloud.const import SIGN_CONVENTION_LOAD, normalise_sign_convention
+
+        assert normalise_sign_convention("consumer") == SIGN_CONVENTION_LOAD
+
+    def test_known_values_pass_through(self):
+        from soliscloud.const import SIGN_CONVENTION_GENERATOR, SIGN_CONVENTION_LOAD, normalise_sign_convention
+
+        assert normalise_sign_convention("generator") == SIGN_CONVENTION_GENERATOR
+        assert normalise_sign_convention("load") == SIGN_CONVENTION_LOAD
+
+    def test_unknown_or_missing_falls_back_to_the_default(self):
+        from soliscloud.const import DEFAULT_SIGN_CONVENTION, normalise_sign_convention
+
+        assert normalise_sign_convention(None) == DEFAULT_SIGN_CONVENTION
+        assert normalise_sign_convention("nonsense") == DEFAULT_SIGN_CONVENTION
+
+    def test_legacy_value_still_produces_load_convention_signs(self):
+        """End to end: an old entry value must flip the signs, not silently default."""
+        from soliscloud.const import normalise_sign_convention
+        from soliscloud.sensor import SENSORS, SolisSensor
+        from soliscloud.soliscloud_api.models import InverterDetail
+
+        raw = {"id": "1", "sn": "SN1", "stationId": "S", "state": 1, "pac": 1.369, "pacStr": "kW"}
+        coordinator = _coordinator({"SN1": InverterDetail.model_validate(raw)}, normalise_sign_convention("consumer"))
+        pac = next(d for d in SENSORS if d.key == "pac")
+        assert SolisSensor(coordinator, "SN1", pac).native_value == -1369.0

@@ -28,28 +28,42 @@ DEFAULT_SCAN_INTERVAL_MINUTES = 5
 MIN_SCAN_INTERVAL_MINUTES = 1
 
 
-# --- Sign convention (Zaehlpfeilsystem) -------------------------------------
+# --- Sign convention --------------------------------------------------------
 #
-# https://de.wikipedia.org/wiki/Zaehlpfeil
+# https://en.wikipedia.org/wiki/Passive_sign_convention
 #
-#   Verbraucherzaehlpfeilsystem (VZS): a positive value means the component draws
-#   power  -- "nimmt der Zweipol die elektrische Leistung p auf".
-#   Erzeugerzaehlpfeilsystem   (EZS): a positive value means the component delivers
-#   power  -- "gibt der Zweipol die elektrische Leistung p ab".
+#   Generator convention (active sign convention): power flowing OUT of the component
+#   is positive -- "the power variable represents power produced".
+#   Load convention (passive sign convention): power flowing INTO the component is
+#   positive -- "electric power flowing out of the circuit into an electrical
+#   component as positive".
 #
-# The two differ only by sign: p' = -p.
+# The two are opposites: p' = -p.
 #
 # SolisCloud itself is not consistent. Measured on a live inverter: pac=+1.369 kW
 # while generating, psum=+1.156 kW while exporting and batteryPower=-0.037 kW while
-# charging are all EZS, but familyLoadPower=+0.19 kW while consuming is VZS. This
-# integration normalises everything to one system and lets the user pick which.
+# charging all follow the generator convention, but familyLoadPower=+0.19 kW while
+# consuming follows the load convention. This integration normalises everything onto
+# one convention and lets the user pick which.
 CONF_SIGN_CONVENTION = "sign_convention"
 
-SIGN_CONVENTION_CONSUMER = "consumer"
 SIGN_CONVENTION_GENERATOR = "generator"
-SIGN_CONVENTIONS = [SIGN_CONVENTION_GENERATOR, SIGN_CONVENTION_CONSUMER]
+SIGN_CONVENTION_LOAD = "load"
+SIGN_CONVENTIONS = [SIGN_CONVENTION_GENERATOR, SIGN_CONVENTION_LOAD]
 
-# EZS by default: it matches the API's native sign for PV, grid and battery, so the
-# out-of-the-box values are the ones a solar owner expects (generating, exporting and
-# discharging all positive).
+# Renamed from "consumer" once the English reference was adopted; mapped on read so an
+# entry saved by an earlier version keeps working.
+_LEGACY_SIGN_CONVENTIONS = {"consumer": SIGN_CONVENTION_LOAD}
+
+# Generator convention by default: it matches the API's native sign for PV, grid and
+# battery, so out of the box generating, exporting and discharging are all positive.
+# As the reference puts it, "No manufacturer sells a '-5 kilowatt generator.'"
 DEFAULT_SIGN_CONVENTION = SIGN_CONVENTION_GENERATOR
+
+
+def normalise_sign_convention(value: str | None) -> str:
+    """Accept legacy values and fall back to the default for anything unknown."""
+    if value is None:
+        return DEFAULT_SIGN_CONVENTION
+    value = _LEGACY_SIGN_CONVENTIONS.get(value, value)
+    return value if value in SIGN_CONVENTIONS else DEFAULT_SIGN_CONVENTION

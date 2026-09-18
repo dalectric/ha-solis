@@ -61,7 +61,9 @@ class SolisSensorDescription(SensorEntityDescription):
 
 
 def sign_multiplier(flow: Flow, convention: str) -> int:
-    """Factor converting a raw value into the chosen Zaehlpfeilsystem.
+    """Factor converting a raw value into the chosen sign convention.
+
+    https://en.wikipedia.org/wiki/Passive_sign_convention
 
     Cumulative energy counters are deliberately Flow.NONE. They are not signed
     quantities but two separate one-way meters (kWh imported, kWh exported), and
@@ -70,9 +72,9 @@ def sign_multiplier(flow: Flow, convention: str) -> int:
     """
     if flow is Flow.NONE:
         return 1
-    # Normalise to EZS first: positive means the component delivers power.
-    to_ezs = 1 if flow is Flow.DELIVERS else -1
-    return to_ezs if convention == SIGN_CONVENTION_GENERATOR else -to_ezs
+    # Normalise to the generator convention first: positive means power produced.
+    to_generator = 1 if flow is Flow.DELIVERS else -1
+    return to_generator if convention == SIGN_CONVENTION_GENERATOR else -to_generator
 
 
 def _power(key: str, name: str, flow: Flow = Flow.DELIVERS) -> SolisSensorDescription:

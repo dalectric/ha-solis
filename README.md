@@ -108,34 +108,37 @@ The build step vendors the client into the component because this repo has no pu
 package yet. Once it is on GitHub, that can become a single manifest entry:
 `"requirements": ["ha-solis @ git+https://github.com/dalectric/ha-solis@main"]`.
 
-## Sign convention (Zählpfeilsystem)
+## Sign convention
 
 SolisCloud is not internally consistent about signs. Measured on a live inverter:
 `pac=+1.369 kW` while generating, `psum=+1.156 kW` while exporting and
 `batteryPower=-0.037 kW` while charging all follow the generator convention, but
-`familyLoadPower=+0.19 kW` while consuming follows the consumer one.
+`familyLoadPower=+0.19 kW` while consuming follows the load convention.
 
 This integration normalises every signed power sensor onto one
-[Zählpfeilsystem](https://de.wikipedia.org/wiki/Zählpfeil), selectable at runtime via
-the **Sign convention** entity or in the integration's options:
+[sign convention](https://en.wikipedia.org/wiki/Passive_sign_convention), selectable at
+runtime via the **Sign convention** entity or in the integration's options:
 
-| | Erzeugerzählpfeilsystem (EZS, default) | Verbraucherzählpfeilsystem (VZS) |
+| | Generator convention (default) | Load convention |
 |---|---|---|
-| positive means | power **delivered** | power **consumed** |
+| also known as | active sign convention | passive sign convention |
+| positive means | power **produced** | power **consumed** |
 | PV generating | `+` | `−` |
 | Grid | `+` exporting | `+` importing |
 | Battery | `+` discharging | `+` charging |
 | House load | `−` | `+` |
 
-The two are exact negations (`p′ = −p`), as the standard defines.
+The two are exact negations (`p′ = −p`). Generator convention is the default because it
+matches the API's native signs for PV, grid and battery — or as the reference puts it,
+*"No manufacturer sells a '−5 kilowatt generator.'"*
 
-Cumulative **energy** counters are deliberately left positive in both systems. They are
-not signed quantities but separate one-way meters (kWh imported, kWh exported), and
-Home Assistant's Energy dashboard requires `total_increasing` sensors to stay positive
-and monotonic.
+Cumulative **energy** counters are deliberately left positive under both. They are not
+signed quantities but separate one-way meters (kWh imported, kWh exported), and Home
+Assistant's Energy dashboard requires `total_increasing` sensors to stay positive and
+monotonic.
 
-The selector's attributes spell out what positive currently means for grid, battery
-and PV, so the active convention is readable from a template or dashboard.
+The selector's attributes spell out what positive currently means for grid, battery and
+PV, so the active convention is readable from a template or dashboard.
 
 ## What this handles that a naive client does not
 

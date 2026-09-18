@@ -14,10 +14,10 @@ from .const import (
     CONF_SIGN_CONVENTION,
     CONF_URL,
     DEFAULT_SCAN_INTERVAL_MINUTES,
-    DEFAULT_SIGN_CONVENTION,
     DEFAULT_TIMEOUT_SECONDS,
     DEFAULT_URL,
     DOMAIN,
+    normalise_sign_convention,
 )
 from .coordinator import SolisCoordinator
 from .soliscloud_api.client import SolisCloudClient
@@ -50,9 +50,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: SolisConfigEntry) -> boo
         CONF_SCAN_INTERVAL_MINUTES,
         entry.data.get(CONF_SCAN_INTERVAL_MINUTES, DEFAULT_SCAN_INTERVAL_MINUTES),
     )
-    convention = entry.options.get(
-        CONF_SIGN_CONVENTION,
-        entry.data.get(CONF_SIGN_CONVENTION, DEFAULT_SIGN_CONVENTION),
+    convention = normalise_sign_convention(
+        entry.options.get(CONF_SIGN_CONVENTION, entry.data.get(CONF_SIGN_CONVENTION))
     )
     coordinator = SolisCoordinator(hass, entry, client, interval, convention)
 
@@ -80,7 +79,7 @@ async def _async_reload_entry(hass: HomeAssistant, entry: SolisConfigEntry) -> N
     reloading for it would re-poll a slow API for no reason.
     """
     coordinator = entry.runtime_data
-    convention = entry.options.get(CONF_SIGN_CONVENTION, DEFAULT_SIGN_CONVENTION)
+    convention = normalise_sign_convention(entry.options.get(CONF_SIGN_CONVENTION))
     interval_minutes = entry.options.get(CONF_SCAN_INTERVAL_MINUTES, DEFAULT_SCAN_INTERVAL_MINUTES)
 
     if (
