@@ -32,7 +32,6 @@ src/soliscloud_api/      # async API client; no Home Assistant imports
   models.py              # pydantic response models
   settings.py            # pydantic-settings; lazy get_settings()
   __main__.py            # show / probe / dump CLI
-src/forecast_solar/      # separate forecast.solar client
 custom_components/soliscloud/   # thin Home Assistant layer
 scripts/build_ha.py      # vendors the client into dist/soliscloud for deployment
 tests/
@@ -92,8 +91,7 @@ in `.env.example`.
 ## Environment Configuration
 
 `.env` in the project root provides `SOLIS_ID`, `SOLIS_SECRET`, `SOLIS_URL` and
-optionally `SOLIS_TIMEOUT`, plus `FORECAST_LATITUDE`, `FORECAST_LONGITUDE` and
-`FORECAST_ARRAYS` for the forecast.solar client. See `.env.example`.
+optionally `SOLIS_TIMEOUT`. See `.env.example`.
 
 **Do not commit `.env`**, and do not put coordinates or site geometry back into source:
 they identify where the user lives. `.gitignore` matches `.env` at any depth and a

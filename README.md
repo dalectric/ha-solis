@@ -7,7 +7,6 @@ and grid monitoring.
 
 - `src/soliscloud_api/` — async API client. No Home Assistant imports, usable on its own.
 - `custom_components/soliscloud/` — thin Home Assistant layer on top of it.
-- `src/forecast_solar/` — separate forecast.solar client.
 
 ## Setup
 
@@ -27,14 +26,6 @@ SOLIS_SECRET=<key secret>
 SOLIS_URL=https://www.soliscloud.com:13333/
 ```
 
-The forecast.solar client reads its site configuration from the same file. Your
-coordinates identify where you live, so they are kept out of source control:
-
-```env
-FORECAST_LATITUDE=51.5
-FORECAST_LONGITUDE=-0.12
-FORECAST_ARRAYS=[{"name":"South","decline":35,"azimuth":0,"kwp":0.4,"modules":10}]
-```
 
 ## CLI
 
