@@ -270,3 +270,130 @@ class TestSignConventionMigration:
         coordinator = _coordinator({"SN1": InverterDetail.model_validate(raw)}, normalise_sign_convention("consumer"))
         pac = next(d for d in SENSORS if d.key == "pac")
         assert SolisSensor(coordinator, "SN1", pac).native_value == -1369.0
+
+
+def _valid_sensor_targets() -> set[str]:
+    """Model fields plus properties: a sensor may read either."""
+    from soliscloud.soliscloud_api.models import InverterDetail
+
+    fields = set(InverterDetail.model_fields)
+    props = {
+        name
+        for name in dir(InverterDetail)
+        if not name.startswith("_") and isinstance(getattr(InverterDetail, name, None), property)
+    }
+    return fields | props
+
+
+class TestSensorTable:
+    """Validated against the real SENSORS tuple, not by parsing the source."""
+
+    def test_every_sensor_key_is_readable_from_the_model(self):
+        from soliscloud.sensor import SENSORS
+
+        unknown = sorted({d.key for d in SENSORS} - _valid_sensor_targets())
+        assert not unknown, f"sensors read attributes InverterDetail does not expose: {unknown}"
+
+    def test_sensor_keys_are_unique(self):
+        from soliscloud.sensor import SENSORS
+
+        keys = [d.key for d in SENSORS]
+        duplicates = sorted({k for k in keys if keys.count(k) > 1})
+        assert not duplicates, f"duplicate sensor keys: {duplicates}"
+
+    def test_every_power_sensor_declares_a_flow(self):
+        from homeassistant.components.sensor import SensorDeviceClass
+        from soliscloud.sensor import SENSORS, Flow
+
+        missing = [d.key for d in SENSORS if d.device_class is SensorDeviceClass.POWER and d.flow is Flow.NONE]
+        assert not missing, f"power sensors with no flow classification: {missing}"
+
+    def test_net_energy_sensors_can_decrease_and_follow_the_convention(self):
+        """A balance falls whenever more is drawn than delivered.
+
+        TOTAL_INCREASING would make Home Assistant treat every dip as a meter reset.
+        """
+        from homeassistant.components.sensor import SensorStateClass
+        from soliscloud.sensor import SENSORS, Flow
+
+        net = [d for d in SENSORS if d.key.startswith("grid_exchange_")]
+        assert net, "no grid exchange sensors found"
+        for d in net:
+            assert d.state_class is SensorStateClass.TOTAL, d.key
+            assert d.flow is Flow.DELIVERS, d.key
+
+    def test_one_way_counters_stay_unsigned_and_increasing(self):
+        from homeassistant.components.sensor import SensorStateClass
+        from soliscloud.sensor import SENSORS, Flow
+
+        counters = [
+            d
+            for d in SENSORS
+            if d.key.startswith(("grid_purchased_", "grid_sell_", "battery_total_", "battery_today_"))
+        ]
+        assert counters
+        for d in counters:
+            assert d.state_class is SensorStateClass.TOTAL_INCREASING, d.key
+            assert d.flow is Flow.NONE, d.key
+
+
+class TestGridExchange:
+    """Balances derived from the two one-way meters."""
+
+    RAW: ClassVar[dict] = {
+        "id": "1",
+        "sn": "SN1",
+        "stationId": "S",
+        "state": 1,
+        "gridPurchasedTodayEnergy": 3.03,
+        "gridPurchasedTodayEnergyStr": "kWh",
+        "gridSellTodayEnergy": 6.24,
+        "gridSellTodayEnergyStr": "kWh",
+        "gridPurchasedTotalEnergy": 2.117,
+        "gridPurchasedTotalEnergyStr": "MWh",
+        "gridSellTotalEnergy": 5.153,
+        "gridSellTotalEnergyStr": "MWh",
+    }
+
+    def _value(self, key: str, convention: str):
+        from soliscloud.sensor import SENSORS, SolisSensor
+        from soliscloud.soliscloud_api.models import InverterDetail
+
+        coordinator = _coordinator({"SN1": InverterDetail.model_validate(self.RAW)}, convention)
+        description = next(d for d in SENSORS if d.key == key)
+        return SolisSensor(coordinator, "SN1", description).native_value
+
+    def test_net_is_export_minus_import_after_unit_normalisation(self):
+        from soliscloud.const import SIGN_CONVENTION_GENERATOR
+
+        assert self._value("grid_exchange_today_energy", SIGN_CONVENTION_GENERATOR) == 6.24 - 3.03
+        # MWh normalised to kWh before netting, not after.
+        assert self._value("grid_exchange_total_energy", SIGN_CONVENTION_GENERATOR) == 5153.0 - 2117.0
+
+    def test_balance_follows_the_sign_convention(self):
+        from soliscloud.const import SIGN_CONVENTION_GENERATOR, SIGN_CONVENTION_LOAD
+
+        generator = self._value("grid_exchange_today_energy", SIGN_CONVENTION_GENERATOR)
+        load = self._value("grid_exchange_today_energy", SIGN_CONVENTION_LOAD)
+        assert generator > 0, "net export must be positive under the generator convention"
+        assert load == -generator, "the conventions must be exact negations"
+
+    def test_net_import_is_negative_under_the_generator_convention(self):
+        from soliscloud.const import SIGN_CONVENTION_GENERATOR
+        from soliscloud.sensor import SENSORS, SolisSensor
+        from soliscloud.soliscloud_api.models import InverterDetail
+
+        raw = self.RAW | {"gridPurchasedTodayEnergy": 9.0, "gridSellTodayEnergy": 1.0}
+        coordinator = _coordinator({"SN1": InverterDetail.model_validate(raw)}, SIGN_CONVENTION_GENERATOR)
+        d = next(x for x in SENSORS if x.key == "grid_exchange_today_energy")
+        assert SolisSensor(coordinator, "SN1", d).native_value == -8.0
+
+    def test_missing_side_yields_unknown_rather_than_a_wrong_balance(self):
+        from soliscloud.const import SIGN_CONVENTION_GENERATOR
+        from soliscloud.sensor import SENSORS, SolisSensor
+        from soliscloud.soliscloud_api.models import InverterDetail
+
+        raw = {k: v for k, v in self.RAW.items() if "Sell" not in k}
+        coordinator = _coordinator({"SN1": InverterDetail.model_validate(raw)}, SIGN_CONVENTION_GENERATOR)
+        d = next(x for x in SENSORS if x.key == "grid_exchange_today_energy")
+        assert SolisSensor(coordinator, "SN1", d).native_value is None

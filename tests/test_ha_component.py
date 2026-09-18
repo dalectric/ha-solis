@@ -1,51 +1,15 @@
 """Checks on the Home Assistant component that do not require homeassistant installed.
 
-sensor.py imports homeassistant, so it is parsed rather than imported.
+Only things that can be read as text live here. The sensor table is validated against
+the real objects in test_ha_integration.py -- parsing it proved too easy to fool: a new
+helper function silently dropped four sensors out of the check.
 """
 
 import ast
 import json
 from pathlib import Path
 
-from soliscloud_api.models import InverterDetail
-
 COMPONENT = Path(__file__).resolve().parent.parent / "custom_components" / "soliscloud"
-
-
-def _sensor_keys() -> list[str]:
-    """Every `key=` string passed to a SensorEntityDescription or helper in sensor.py."""
-    tree = ast.parse((COMPONENT / "sensor.py").read_text())
-    keys: list[str] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        for kw in node.keywords:
-            if kw.arg == "key" and isinstance(kw.value, ast.Constant):
-                keys.append(kw.value.value)
-        func = node.func
-        if (
-            isinstance(func, ast.Name)
-            and func.id in {"_power", "_energy", "_volts", "_amps"}
-            and node.args
-            and isinstance(node.args[0], ast.Constant)
-        ):
-            keys.append(node.args[0].value)
-    return keys
-
-
-class TestSensorTable:
-    def test_every_sensor_key_exists_on_the_model(self):
-        """A typo here would produce a permanently `unknown` entity, silently."""
-        unknown = sorted(set(_sensor_keys()) - set(InverterDetail.model_fields))
-        assert not unknown, f"sensor.py references fields InverterDetail does not have: {unknown}"
-
-    def test_sensor_keys_are_unique(self):
-        keys = _sensor_keys()
-        duplicates = sorted({k for k in keys if keys.count(k) > 1})
-        assert not duplicates, f"duplicate sensor keys: {duplicates}"
-
-    def test_table_is_not_empty(self):
-        assert len(_sensor_keys()) > 20
 
 
 class TestManifest:

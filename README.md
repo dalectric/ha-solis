@@ -123,6 +123,22 @@ The two are exact negations (`p′ = −p`). Generator convention is the default
 matches the API's native signs for PV, grid and battery — or as the reference puts it,
 *"No manufacturer sells a '−5 kilowatt generator.'"*
 
+### Grid exchange
+
+The API reports grid import and export as two separate one-way counters, so neither
+alone answers "am I ahead?". **Grid exchange** sensors carry the balance — export minus
+import — for today, this month, this year and total, alongside `Grid exchange power`
+for the instantaneous figure.
+
+These are genuine signed quantities, so they follow the sign convention: positive is a
+net export under the generator convention, a net import under the load convention. They
+use `state_class: total` rather than `total_increasing`, because a balance legitimately
+falls whenever more is drawn than delivered — `total_increasing` would make Home
+Assistant read every dip as a meter reset.
+
+A balance is only published when both sides are reported; netting a present value
+against a missing one would quietly understate it, so the sensor stays `unknown`.
+
 Cumulative **energy** counters are deliberately left positive under both. They are not
 signed quantities but separate one-way meters (kWh imported, kWh exported), and Home
 Assistant's Energy dashboard requires `total_increasing` sensors to stay positive and

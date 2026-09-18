@@ -143,9 +143,15 @@ class _InverterCommon(SolisModel):
     e_year: OptFloat = Field(None, validation_alias=AliasChoices("eYear", "eyear"))
     e_total: OptFloat = Field(None, validation_alias=AliasChoices("eTotal", "etotal"))
 
+    # Grid meters are one-way counters: import and export are reported separately and
+    # both only ever increase.
     grid_purchased_today_energy: OptFloat = Field(None, alias="gridPurchasedTodayEnergy")
+    grid_purchased_month_energy: OptFloat = Field(None, alias="gridPurchasedMonthEnergy")
+    grid_purchased_year_energy: OptFloat = Field(None, alias="gridPurchasedYearEnergy")
     grid_purchased_total_energy: OptFloat = Field(None, alias="gridPurchasedTotalEnergy")
     grid_sell_today_energy: OptFloat = Field(None, alias="gridSellTodayEnergy")
+    grid_sell_month_energy: OptFloat = Field(None, alias="gridSellMonthEnergy")
+    grid_sell_year_energy: OptFloat = Field(None, alias="gridSellYearEnergy")
     grid_sell_total_energy: OptFloat = Field(None, alias="gridSellTotalEnergy")
     home_load_today_energy: OptFloat = Field(None, alias="homeLoadTodayEnergy")
     home_load_total_energy: OptFloat = Field(None, alias="homeLoadTotalEnergy")
@@ -159,11 +165,47 @@ class _InverterCommon(SolisModel):
     battery_total_discharge_energy: OptFloat = Field(None, alias="batteryTotalDischargeEnergy")
 
 
-class InverterInfo(_InverterCommon):
+def _net(delivered: float | None, drawn: float | None) -> float | None:
+    """Net exchange, positive when more was delivered than drawn.
+
+    Returns None unless both sides are reported: netting a present value against a
+    missing one would silently understate the result.
+    """
+    if delivered is None or drawn is None:
+        return None
+    return delivered - drawn
+
+
+class _GridExchangeMixin:
+    """Signed net exchange with the grid, derived from the two one-way meters.
+
+    The raw counters only ever rise, so neither alone answers "am I ahead?". These are
+    genuine signed quantities and follow the selected sign convention, unlike the
+    directional counters they are derived from.
+    """
+
+    @property
+    def grid_exchange_today_energy(self) -> float | None:
+        return _net(self.grid_sell_today_energy, self.grid_purchased_today_energy)
+
+    @property
+    def grid_exchange_month_energy(self) -> float | None:
+        return _net(self.grid_sell_month_energy, self.grid_purchased_month_energy)
+
+    @property
+    def grid_exchange_year_energy(self) -> float | None:
+        return _net(self.grid_sell_year_energy, self.grid_purchased_year_energy)
+
+    @property
+    def grid_exchange_total_energy(self) -> float | None:
+        return _net(self.grid_sell_total_energy, self.grid_purchased_total_energy)
+
+
+class InverterInfo(_InverterCommon, _GridExchangeMixin):
     """One record from /v1/api/inverterList."""
 
 
-class InverterDetail(_InverterCommon):
+class InverterDetail(_InverterCommon, _GridExchangeMixin):
     """Payload from /v1/api/inverterDetail."""
 
     collector_id: OptStr = Field(None, alias="collectorId")

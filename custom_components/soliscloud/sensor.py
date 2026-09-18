@@ -98,6 +98,23 @@ def _energy(key: str, name: str) -> SolisSensorDescription:
     )
 
 
+def _net_energy(key: str, name: str) -> SolisSensorDescription:
+    """Signed net energy: a balance, not a meter reading.
+
+    state_class TOTAL rather than TOTAL_INCREASING, because a net figure legitimately
+    falls whenever more is drawn than delivered. Flow.DELIVERS so it follows the
+    selected sign convention, unlike the one-way counters it is derived from.
+    """
+    return SolisSensorDescription(
+        key=key,
+        name=name,
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        state_class=SensorStateClass.TOTAL,
+        flow=Flow.DELIVERS,
+    )
+
+
 def _volts(key: str, name: str) -> SolisSensorDescription:
     return SolisSensorDescription(
         key=key,
@@ -123,7 +140,7 @@ def _amps(key: str, name: str) -> SolisSensorDescription:
 SENSORS: tuple[SolisSensorDescription, ...] = (
     # Power
     _power("pac", "PV power"),
-    _power("p_sum", "Grid power"),
+    _power("p_sum", "Grid exchange power"),
     _power("family_load_power", "House load", Flow.CONSUMES),
     _power("total_load_power", "Total load", Flow.CONSUMES),
     _power("battery_power", "Battery power"),
@@ -138,10 +155,20 @@ SENSORS: tuple[SolisSensorDescription, ...] = (
     _energy("e_year", "Generation this year"),
     _energy("e_total", "Generation total"),
     # Grid energy
+    # One-way meters: always positive, Energy dashboard compatible.
     _energy("grid_purchased_today_energy", "Grid import today"),
+    _energy("grid_purchased_month_energy", "Grid import this month"),
+    _energy("grid_purchased_year_energy", "Grid import this year"),
     _energy("grid_purchased_total_energy", "Grid import total"),
     _energy("grid_sell_today_energy", "Grid export today"),
+    _energy("grid_sell_month_energy", "Grid export this month"),
+    _energy("grid_sell_year_energy", "Grid export this year"),
     _energy("grid_sell_total_energy", "Grid export total"),
+    # Balances: export minus import, signed and convention-aware.
+    _net_energy("grid_exchange_today_energy", "Grid exchange today"),
+    _net_energy("grid_exchange_month_energy", "Grid exchange this month"),
+    _net_energy("grid_exchange_year_energy", "Grid exchange this year"),
+    _net_energy("grid_exchange_total_energy", "Grid exchange total"),
     _energy("home_load_today_energy", "House consumption today"),
     _energy("home_load_total_energy", "House consumption total"),
     # Battery energy
