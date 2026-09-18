@@ -18,7 +18,3 @@ dist/
 
 # Raw API dumps: contain inverter serials and station ids
 data/raw/
-
-# forecast.solar client: kept locally for future integration, not part of this repo
-src/forecast_solar/
-tests/test_forecast_solar.py
