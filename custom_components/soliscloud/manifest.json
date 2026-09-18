@@ -1,0 +1,12 @@
+{
+  "domain": "soliscloud",
+  "name": "SolisCloud",
+  "version": "0.1.0",
+  "config_flow": true,
+  "documentation": "https://github.com/dalectric/ha-solis",
+  "issue_tracker": "https://github.com/dalectric/ha-solis/issues",
+  "iot_class": "cloud_polling",
+  "codeowners": ["@dalectric"],
+  "dependencies": [],
+  "requirements": ["pydantic>=2.9", "pydantic-settings>=2.5", "python-dotenv>=1.0"]
+}

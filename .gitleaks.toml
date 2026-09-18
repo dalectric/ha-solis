@@ -1,0 +1,20 @@
+# Gitleaks configuration.
+# Extends the built-in rule set rather than replacing it.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "soliscloud-key-secret"
+description = "SolisCloud API key id or secret"
+regex = '''(?i)\b(solis[_-]?(id|secret|key[_-]?id|key[_-]?secret))\s*[:=]\s*['"]?([a-z0-9]{16,})['"]?'''
+tags = ["solis", "credential"]
+
+[allowlist]
+description = "Documentation placeholders only"
+# tests/ is deliberately NOT exempt: CLAUDE.md requires that credentials never appear
+# in tests or fixtures, so that is exactly where scanning must stay on.
+paths = [
+  '''\.env\.example$''',
+  '''^README\.md$''',
+  '''^CLAUDE\.md$''',
+]

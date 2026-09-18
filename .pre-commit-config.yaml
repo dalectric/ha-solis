@@ -1,0 +1,39 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+        # uv.lock is legitimately ~570 KB once Home Assistant's dependency tree
+        # is resolved. Still guards against stray binaries and data dumps.
+        args: ['--maxkb=1024']
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: detect-private-key
+
+  # Broad secret scanning: API keys, tokens, credentials in any staged file.
+  # detect-private-key above only catches SSH/PEM keys, not values like SOLIS_SECRET.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      # Belt and braces: .gitignore covers .env, but `git add -f` would bypass it.
+      - id: forbid-env-files
+        name: forbid committing .env files
+        entry: ".env holds real credentials and must never be committed - use .env.example"
+        language: fail
+        files: (^|/)\.env$
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.7
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format

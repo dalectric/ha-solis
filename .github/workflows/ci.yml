@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        # Pinned exactly: setup-uv publishes no floating major tag above v7,
+        # so `@v10` does not resolve.
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --group dev --group test
+
+      - name: Ruff lint
+        run: uv run ruff check --output-format=github .
+
+      - name: Ruff format
+        run: uv run ruff format --check .
+
+      - name: Tests
+        # Live tests are excluded by addopts; they need real credentials.
+        run: uv run pytest -v
+
+  home-assistant:
+    name: Home Assistant integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies (including Home Assistant)
+        run: uv sync --group test --group ha
+
+      - name: Build the custom component
+        run: uv run python scripts/build_ha.py
+
+      - name: Load the component against Home Assistant
+        # Catches vendoring mistakes that only appear on a real HA box, such as the
+        # bundled client relying on the standalone package being installed.
+        run: uv run pytest tests/test_ha_integration.py -v
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # full history, so the scan covers every commit
+
+      - name: Gitleaks
+        # Backstop for the pre-commit hook, which `git commit --no-verify` can skip.
+        run: |
+          VERSION=$(curl -sf https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
+            | grep -o '"tag_name": *"v[^"]*"' | head -1 | sed 's/.*"v\(.*\)"/\1/')
+          curl -sfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          # `git` mode scans commit history, which is what a --no-verify commit
+          # would bypass. `dir` mode would also flag developers' gitignored .env.
+          ./gitleaks git . --redact --verbose

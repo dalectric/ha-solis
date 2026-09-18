@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. v0.1.1"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish the HACS archive
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Resolve version
+        id: version
+        run: |
+          RAW="${{ github.event.inputs.version || github.ref_name }}"
+          echo "tag=${RAW}"          >> "$GITHUB_OUTPUT"
+          echo "number=${RAW#v}"     >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: uv sync --group test --group ha
+
+      - name: Tests must pass before anything is published
+        run: uv run pytest
+
+      - name: Build the component
+        run: uv run python scripts/build_ha.py
+
+      - name: Stamp the manifest with the release version
+        run: |
+          python - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path("dist/soliscloud/manifest.json")
+          m = json.loads(p.read_text())
+          m["version"] = os.environ["VERSION"]
+          p.write_text(json.dumps(m, indent=2) + "\n")
+          print("manifest version ->", m["version"])
+          PY
+        env:
+          VERSION: ${{ steps.version.outputs.number }}
+
+      - name: Zip the component with its files at the archive root
+        # HACS extracts the archive straight into custom_components/soliscloud/,
+        # so the files must sit at the root of the zip, not under a directory.
+        run: cd dist/soliscloud && zip -r ../../soliscloud.zip . -x '*__pycache__*'
+
+      - name: Verify the archive layout
+        run: |
+          unzip -l soliscloud.zip | head -20
+          unzip -l soliscloud.zip | grep -q 'manifest.json' || { echo "manifest.json not at zip root"; exit 1; }
+          unzip -l soliscloud.zip | grep -q 'soliscloud_api/client.py' || { echo "bundled client missing"; exit 1; }
+
+      - name: Publish the release
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" soliscloud.zip \
+            --title "${{ steps.version.outputs.tag }}" \
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

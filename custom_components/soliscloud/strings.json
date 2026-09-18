@@ -1,0 +1,36 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "SolisCloud",
+        "description": "Enter the API URL, Key ID and Key Secret issued by Solis.",
+        "data": {
+          "url": "API URL",
+          "key_id": "Key ID",
+          "key_secret": "Key Secret"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "The Key ID or Key Secret was rejected. Check both for stray whitespace.",
+      "clock_skew": "SolisCloud rejected the request timestamp. Check this machine's clock and timezone.",
+      "rate_limited": "SolisCloud is rate limiting this IP (three calls per five seconds). Wait a moment and retry.",
+      "cannot_connect": "Could not reach SolisCloud. The API is often slow; try again.",
+      "api_error": "SolisCloud returned an error. See the Home Assistant log for the code and message.",
+      "no_inverters": "Connected successfully, but the account returned no inverters. Check the API URL is the right region."
+    },
+    "abort": {
+      "already_configured": "This Key ID is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SolisCloud options",
+        "data": {
+          "scan_interval_minutes": "Polling interval (minutes)"
+        }
+      }
+    }
+  }
+}
