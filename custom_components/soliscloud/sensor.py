@@ -47,9 +47,8 @@ class Period(StrEnum):
 
 
 # Display precision only: Home Assistant keeps the full value for long-term
-# statistics, and precision can be overridden per entity in the UI. Day, month and year
-# counters start each period near zero, so they keep a decimal; lifetime totals do not.
-_PRECISION = {Period.DAY: 1, Period.MONTH: 1, Period.YEAR: 1, Period.LIFETIME: 0}
+# statistics, and precision can be overridden per entity in the UI.
+_PRECISION = {Period.DAY: 1, Period.MONTH: 0, Period.YEAR: 0, Period.LIFETIME: 0}
 
 
 class Flow(StrEnum):
