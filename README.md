@@ -10,7 +10,7 @@ and grid monitoring.
 
 ## Setup
 
-Requires Python 3.14+ and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.14.2+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync                  # runtime deps
@@ -18,14 +18,16 @@ uv sync --all-groups     # plus dev and test
 cp .env.example .env     # then fill in your credentials
 ```
 
-Solis issues three values when you request API access:
+Solis issues the first three values when you request API access:
 
 ```env
 SOLIS_ID=<key id>
 SOLIS_SECRET=<key secret>
 SOLIS_URL=https://www.soliscloud.com:13333/
+SOLIS_TIMEOUT=60           # optional, seconds per request
 ```
 
+`SOLIS_URL` must start with `https://`; any other scheme is rejected.
 
 ## CLI
 
@@ -74,39 +76,39 @@ cp -r dist/soliscloud <ha-config>/custom_components/
 [![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=soliscloud)
 
 Restart Home Assistant, then add **SolisCloud** from Settings → Devices & Services and
-enter the API URL, Key ID and Key Secret. The button above jumps straight to that
-dialog once the integration is installed. Polls every 5 minutes by default, adjustable
-in the integration's options.
+enter the API URL, Key ID and Key Secret. The button above opens that dialog once the
+integration is installed. Polls every 5 minutes by default (minimum 1), adjustable in
+the integration's options.
 
-Verified against Home Assistant **2026.9.2**.
+The component bundles its own copy of `soliscloud_api`, built by `scripts/build_ha.py`,
+so its only requirements are `pydantic`, `pydantic-settings` and `python-dotenv`.
+
+Tested against Home Assistant **2026.10.4** (the version pinned in `uv.lock`).
 
 ### Multiple inverters
 
 One config entry covers the whole account. Every inverter the API returns becomes its
-own **device**, named `Solis <serial>`, each carrying the full set of ~45 entities.
-Entity IDs are namespaced by serial, so nothing collides.
+own **device**, named `Solis <serial>`, with 53 sensors each. Entity IDs are namespaced
+by serial.
 
-Two things to know:
-
-- **Entities are created at setup.** Adding an inverter to your Solis account later
-  needs an integration reload before it appears.
+- **Entities are created at setup.** An inverter added to the Solis account later
+  appears after an integration reload.
 - **Polling cost scales with inverter count.** Each poll is one `inverterList` plus one
-  `inverterDetail` per inverter, and the API is slow (~16s median). Three inverters is
-  roughly a minute per poll — comfortable at a 5 minute interval; ten would be tight, so
-  raise the interval in options.
-
-The build step vendors the client into the component because this repo has no published
-package yet. Once it is on GitHub, that can become a single manifest entry:
-`"requirements": ["ha-solis @ git+https://github.com/dalectric/ha-solis@main"]`.
+  `inverterDetail` per inverter, at ~16s median per call. Three inverters take roughly a
+  minute per poll; for more, raise the interval in options.
 
 ## Sign convention
 
-SolisCloud is not internally consistent about signs. Measured on a live inverter:
-`pac=+1.369 kW` while generating, `psum=+1.156 kW` while exporting and
-`batteryPower=-0.037 kW` while charging all follow the generator convention, but
-`familyLoadPower=+0.19 kW` while consuming follows the load convention.
+The API's raw signs are not consistent across fields:
 
-This integration normalises every signed power sensor onto one
+| Field | Raw positive means | Under the generator convention |
+|---|---|---|
+| `pac` (PV) | generating | used as is |
+| `psum` (grid) | exporting | negated |
+| `batteryPower` | charging | negated |
+| `familyLoadPower` (house) | consuming | negated |
+
+The integration normalises every signed power sensor onto one
 [sign convention](https://en.wikipedia.org/wiki/Passive_sign_convention), selectable at
 runtime via the **Sign convention** entity or in the integration's options:
 
@@ -119,82 +121,68 @@ runtime via the **Sign convention** entity or in the integration's options:
 | Grid | `+` importing, `−` exporting | `+` exporting, `−` importing |
 | House load | `−` | `+` |
 
-Every component is treated as a supplier to the house, so under the generator
-convention a positive reading always means "this is feeding the system" and a negative
-one means "this is drawing from it".
+Every component is treated as a supplier to the house: under the generator convention a
+positive reading means "feeding the system" and a negative one "drawing from it". The
+two conventions are exact negations (`p′ = −p`). Generator convention is the default.
 
-The raw signs were established by measurement, not assumption. With a 3.3 kW immersion
-running: house load 3111 W, PV 550 W, grid 0 W and `batteryPower` −2771 W — the battery
-was the only possible source, so a raw negative `batteryPower` is the battery
-*discharging*. Confirmed again while charging, with `storageBatteryCurrent` +5.7 A and
-PV 533 W against a 197 W house load.
-
-The two are exact negations (`p′ = −p`). Generator convention is the default because it
-matches the API's native signs for PV, grid and battery — or as the reference puts it,
-*"No manufacturer sells a '−5 kilowatt generator.'"*
+The selector's attributes state what positive currently means for grid, battery and
+PV, so the active convention is readable from a template or dashboard.
 
 ### Grid exchange
 
-The API reports grid import and export as two separate one-way counters, so neither
-alone answers "am I ahead?". **Grid exchange** sensors carry the balance — export minus
-import — for today, this month, this year and total, alongside `Grid exchange power`
-for the instantaneous figure.
+The API reports grid import and export as two separate one-way counters. **Grid
+exchange** sensors carry the balance — export minus import — for today, this month,
+this year and total, alongside `Grid exchange power` for the instantaneous figure.
 
-These are genuine signed quantities, so they follow the sign convention: positive is a
-net export under the generator convention, a net import under the load convention. They
-use `state_class: total` rather than `total_increasing`, because a balance legitimately
-falls whenever more is drawn than delivered — `total_increasing` would make Home
-Assistant read every dip as a meter reset.
+- They follow the sign convention: positive is a net import under the generator
+  convention, a net export under the load convention.
+- They use `state_class: total`, not `total_increasing`, because a balance can fall.
+- A balance is `unknown` unless both import and export are reported.
 
-A balance is only published when both sides are reported; netting a present value
-against a missing one would quietly understate it, so the sensor stays `unknown`.
-
-Cumulative **energy** counters are deliberately left positive under both. They are not
-signed quantities but separate one-way meters (kWh imported, kWh exported), and Home
-Assistant's Energy dashboard requires `total_increasing` sensors to stay positive and
-monotonic.
+Cumulative **energy** counters are always positive under both conventions. They are
+one-way meters (kWh imported, kWh exported), as the Energy dashboard requires for
+`total_increasing` sensors.
 
 ### Display precision
 
-Energy is rendered to one decimal for daily figures and whole kWh for month, year and
-lifetime totals — a tenth matters on a day's output, but is noise on a four-digit total
-that the API only reports to three significant figures anyway.
+| Period | Decimals |
+|---|---|
+| Today | 1 |
+| Month, year, lifetime | 0 |
 
 This is display only: Home Assistant keeps the full value for long-term statistics, and
-you can override it per entity in the UI.
+precision can be overridden per entity in the UI.
 
-The selector's attributes spell out what positive currently means for grid, battery and
-PV, so the active convention is readable from a template or dashboard.
+## API behaviour and client handling
 
-## What this handles that a naive client does not
-
-Behaviour measured against the live API, not assumed:
-
-| Observation | Consequence |
+| API behaviour | Client handling |
 |---|---|
-| Median response ~16s, tail past 30s, and roughly **1 call in 4 exceeds 30s** | Default timeout is 60s. A 10s timeout — as used by `fboundy/solis-sensor` — times out on most polls and reports it as "No inverters found". |
-| Transient HTTP 502s | Up to 3 attempts with exponential backoff and jitter. Auth errors are never retried. |
-| Documented limit of 3 calls per 5 seconds per IP | A sliding-window limiter shared across all calls on a client. |
-| Units differ **between fields in the same response** — `eToday` in kWh but `eTotal` in MWh | Values are normalised via their `<field>Str` companion to W and kWh, so counters nest correctly. |
-| A real `inverterDetail` response has ~812 keys | ~50 are explicitly typed; the rest are retained via `model_extra`, so nothing is discarded and no schema change is needed when Solis adds a field. |
-| Fields are omitted rather than zeroed when not applicable | Numerics default to `None`, never `0.0`, so Home Assistant shows `unknown` instead of a false zero. |
+| Median response ~16s, tail past 30s; about 1 call in 4 exceeds 30s | Default timeout 60s per request. |
+| Transient HTTP 5xx and timeouts | Up to 3 attempts with exponential backoff and jitter. Auth errors are not retried. |
+| Limit of 3 calls per 5 seconds per IP | Sliding-window limiter shared across all calls on a client. |
+| Units differ between fields in one response — `eToday` in kWh, `eTotal` in MWh | Values normalised to W and kWh via their `<field>Str` companion. |
+| `inverterDetail` returns ~812 keys | ~50 typed; the rest retained via `model_extra`. |
+| Fields omitted rather than zeroed when not applicable | Numerics default to `None`, never `0.0`; Home Assistant shows `unknown`. |
 
 Each failure cause raises its own exception — `SolisAuthError`, `SolisClockSkewError`,
-`SolisRateLimitError`, `SolisAPIError`, `SolisTransportError` — so a wrong key never
-looks like an empty account.
+`SolisRateLimitError`, `SolisAPIError`, `SolisTransportError` — so a wrong key is
+distinguishable from an empty account.
 
 ## Development
 
 ```bash
 uv sync --group ha        # optional: installs Home Assistant for integration tests
 uv run pytest             # offline suite
-uv run pytest -m live     # against the real API; needs .env (slow, ~5 min)
+uv run pytest -m live     # against the real API; needs .env (~5 min)
 uv run ruff check .
 uv run ruff format .
 ```
 
 `tests/test_ha_integration.py` builds the component and loads it against a real Home
 Assistant install. It is skipped unless the `ha` group is installed.
+
+CI runs lint, the offline suite, the Home Assistant integration test and a gitleaks scan
+of the full history on every push to `main` and every pull request.
 
 ### Secret scanning
 
@@ -204,15 +192,13 @@ Install the git hooks once per clone:
 uv run pre-commit install
 ```
 
-Two layers stop credentials reaching the repo, both verified against the real `.env`:
-
 - **gitleaks** scans staged content for API keys, tokens and credentials. `.gitleaks.toml`
   extends the default rule set with a SolisCloud-specific rule for `SOLIS_ID` and
   `SOLIS_SECRET`.
-- **`forbid-env-files`** rejects any staged `.env` outright, since `git add -f` bypasses
-  `.gitignore`. `.env.example` is deliberately not matched.
+- **`forbid-env-files`** rejects any staged `.env`, since `git add -f` bypasses
+  `.gitignore`. `.env.example` is allowed.
 
-To check the whole history rather than just staged changes:
+To check every file rather than just staged changes:
 
 ```bash
 uv run pre-commit run --all-files
