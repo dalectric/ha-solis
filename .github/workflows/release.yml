@@ -27,8 +27,15 @@ jobs:
 
       - name: Resolve version
         id: version
+        # Passed through env rather than expanded into the script, so a crafted
+        # version string cannot inject shell commands into a job holding write access.
+        env:
+          RAW: ${{ github.event.inputs.version || github.ref_name }}
         run: |
-          RAW="${{ github.event.inputs.version || github.ref_name }}"
+          if ! [[ "$RAW" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "version must look like v1.2.3, got: $RAW" >&2
+            exit 1
+          fi
           echo "tag=${RAW}"          >> "$GITHUB_OUTPUT"
           echo "number=${RAW#v}"     >> "$GITHUB_OUTPUT"
 

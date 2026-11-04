@@ -1,7 +1,8 @@
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
-from pydantic import SecretStr
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +18,15 @@ class Settings(BaseSettings):
     # one call in four exceeding 30s. The integration this replaces used a 10s timeout,
     # which is why it reported "No inverters found" on most polls.
     solis_timeout: float = 60.0
+
+    @field_validator("solis_url")
+    @classmethod
+    def _require_https(cls, value: str) -> str:
+        """Plain http would send signed requests and inverter data in clear text."""
+        parts = urlsplit(value.strip())
+        if parts.scheme != "https" or not parts.hostname:
+            raise ValueError(f"must be an https:// URL, got {value!r}")
+        return value.strip()
 
 
 @lru_cache

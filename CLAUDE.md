@@ -7,7 +7,7 @@ and grid in-feed monitoring, and exposes it to Home Assistant.
 
 ## Tech Stack
 
-- Python 3.14+
+- Python 3.14.2+
 - **uv** for dependency management and running code (not Poetry)
 - Pydantic / Pydantic Settings for configuration and data models
 - httpx (async) for HTTP, respx for mocking it in tests
@@ -91,7 +91,7 @@ in `.env.example`.
 ## Environment Configuration
 
 `.env` in the project root provides `SOLIS_ID`, `SOLIS_SECRET`, `SOLIS_URL` and
-optionally `SOLIS_TIMEOUT`. See `.env.example`.
+optionally `SOLIS_TIMEOUT`. See `.env.example`. `SOLIS_URL` must be `https://` — `Settings` rejects anything else.
 
 **Do not commit `.env`**, and do not put coordinates or site geometry back into source:
 they identify where the user lives. `.gitignore` matches `.env` at any depth and a

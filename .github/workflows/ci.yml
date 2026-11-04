@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -71,11 +74,16 @@ jobs:
 
       - name: Gitleaks
         # Backstop for the pre-commit hook, which `git commit --no-verify` can skip.
+        # Pinned to the pre-commit hook's version and checked against a hardcoded
+        # checksum, so a tampered or unexpected release is never executed.
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
         run: |
-          VERSION=$(curl -sf https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
-            | grep -o '"tag_name": *"v[^"]*"' | head -1 | sed 's/.*"v\(.*\)"/\1/')
-          curl -sfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
-            | tar -xz gitleaks
+          ARCHIVE="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sfLo "$ARCHIVE" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${ARCHIVE}"
+          echo "${GITLEAKS_SHA256}  ${ARCHIVE}" | sha256sum -c -
+          tar -xzf "$ARCHIVE" gitleaks
           # `git` mode scans commit history, which is what a --no-verify commit
           # would bypass. `dir` mode would also flag developers' gitignored .env.
           ./gitleaks git . --redact --verbose

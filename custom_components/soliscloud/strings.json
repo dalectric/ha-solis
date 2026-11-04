@@ -12,6 +12,7 @@
       }
     },
     "error": {
+      "invalid_url": "The API URL must start with https://.",
       "invalid_auth": "The Key ID or Key Secret was rejected. Check both for stray whitespace.",
       "clock_skew": "SolisCloud rejected the request timestamp. Check this machine's clock and timezone.",
       "rate_limited": "SolisCloud is rate limiting this IP (three calls per five seconds). Wait a moment and retry.",

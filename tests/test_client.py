@@ -4,6 +4,7 @@ import time
 import httpx
 import pytest
 import respx
+from pydantic import ValidationError
 
 from soliscloud_api.client import RATE_LIMIT_CALLS, RATE_LIMIT_PERIOD, SolisCloudClient, _RateLimiter
 from soliscloud_api.errors import (
@@ -353,3 +354,16 @@ class TestTimeoutIsAppliedPerRequest:
             await client.inverter_list()
 
         assert respx.calls[0].request.extensions["timeout"]["read"] == 42.0
+
+
+class TestUrlMustBeHttps:
+    """Plain http would put signed requests and inverter data on the wire unencrypted."""
+
+    @pytest.mark.parametrize("url", ["http://www.soliscloud.com:13333/", "www.soliscloud.com", "ftp://x", "https://"])
+    def test_rejects_anything_but_https(self, url):
+        with pytest.raises(ValidationError, match="https"):
+            Settings(solis_id="test-id", solis_secret="test-secret", solis_url=url)
+
+    def test_accepts_https_and_strips_whitespace(self):
+        settings = Settings(solis_id="test-id", solis_secret="test-secret", solis_url=" https://api.test.com/ ")
+        assert settings.solis_url == "https://api.test.com/"

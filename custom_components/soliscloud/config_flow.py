@@ -8,6 +8,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.httpx_client import get_async_client
+from pydantic import ValidationError
 
 from .const import (
     CONF_KEY_ID,
@@ -50,12 +51,16 @@ async def _validate(hass: HomeAssistant, user_input: dict[str, Any]) -> tuple[st
     and the runtime defaults (60s x 3 retries) would leave it apparently frozen for
     over three minutes on an unreachable URL.
     """
-    settings = Settings(
-        solis_id=user_input[CONF_KEY_ID],
-        solis_secret=user_input[CONF_KEY_SECRET],
-        solis_url=user_input[CONF_URL],
-        solis_timeout=CONFIG_FLOW_TIMEOUT_SECONDS,
-    )
+    try:
+        settings = Settings(
+            solis_id=user_input[CONF_KEY_ID],
+            solis_secret=user_input[CONF_KEY_SECRET],
+            solis_url=user_input[CONF_URL],
+            solis_timeout=CONFIG_FLOW_TIMEOUT_SECONDS,
+        )
+    except ValidationError:
+        # Settings only rejects a non-https URL; the other fields are plain strings.
+        return "invalid_url", 0
     client = SolisCloudClient(
         settings=settings,
         client=get_async_client(hass),
