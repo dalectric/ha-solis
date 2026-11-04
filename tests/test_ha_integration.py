@@ -483,3 +483,92 @@ class TestDisplayPrecision:
         d = next(x for x in SENSORS if x.key == "grid_sell_total_energy")
         assert d.suggested_display_precision == 0
         assert SolisSensor(coordinator, "SN1", d).native_value == 1234.56
+
+
+class TestUpdateHealth:
+    """Last successful poll and failed polls in the past 24 hours."""
+
+    @staticmethod
+    def _finish(coordinator, success: bool, error: str = "timed out") -> None:
+        from homeassistant.helpers.update_coordinator import UpdateFailed
+
+        coordinator.last_update_success = success
+        coordinator.last_exception = None if success else UpdateFailed(error)
+        coordinator._async_refresh_finished()
+
+    def test_success_records_the_time(self):
+        coordinator = _coordinator({})
+        assert coordinator.last_update_success_time is None
+        self._finish(coordinator, success=True)
+        assert coordinator.last_update_success_time is not None
+        assert coordinator.failures_in_window() == 0
+
+    async def test_every_failure_is_counted_and_listeners_are_told(self):
+        """Home Assistant skips listeners on a repeat failure; the count must still move."""
+        import asyncio
+        from unittest.mock import MagicMock
+
+        from homeassistant.helpers.update_coordinator import UpdateFailed
+
+        coordinator = _coordinator({})
+        coordinator.hass.is_stopping = False
+        coordinator.hass.loop = asyncio.get_running_loop()
+
+        async def fail():
+            raise UpdateFailed("inverterDetail: timed out")
+
+        coordinator._async_update_data = fail
+        listener = MagicMock()
+        coordinator.async_add_listener(listener)
+        try:
+            for expected in (1, 2, 3):
+                await coordinator.async_refresh()
+                assert coordinator.failures_in_window() == expected
+                assert listener.call_count >= expected
+        finally:
+            coordinator._async_unsub_refresh()
+        assert coordinator.last_failure_error == "inverterDetail: timed out"
+        assert coordinator.last_update_success_time is None
+
+    def test_failures_older_than_a_day_drop_out(self):
+        from datetime import timedelta
+
+        from homeassistant.util import dt as dt_util
+
+        coordinator = _coordinator({})
+        self._finish(coordinator, success=False)
+        later = dt_util.utcnow() + timedelta(hours=24, seconds=1)
+        assert coordinator.failures_in_window(later) == 0
+
+    def test_health_sensors_stay_available_while_polls_fail(self):
+        from soliscloud.sensor import SolisFailedUpdatesSensor, SolisLastSuccessSensor
+
+        coordinator = _coordinator({})
+        self._finish(coordinator, success=True)
+        last_ok = coordinator.last_update_success_time
+        self._finish(coordinator, success=False, error="server returned 502")
+
+        last = SolisLastSuccessSensor(coordinator, "e1")
+        failed = SolisFailedUpdatesSensor(coordinator, "e1")
+        assert last.available and failed.available
+        assert last.native_value == last_ok
+        assert failed.native_value == 1
+        assert failed.extra_state_attributes["last_error"] == "server returned 502"
+        assert failed.extra_state_attributes["window_hours"] == 24
+
+    def test_health_sensors_sit_on_the_service_device(self):
+        from soliscloud.sensor import SolisFailedUpdatesSensor, SolisLastSuccessSensor, SolisUpdateIntervalSensor
+
+        coordinator = _coordinator({})
+        ids = set()
+        for cls in (SolisLastSuccessSensor, SolisFailedUpdatesSensor, SolisUpdateIntervalSensor):
+            entity = cls(coordinator, "e1")
+            assert entity.device_info["identifiers"] == {("soliscloud", "e1")}
+            ids.add(entity.unique_id)
+        assert ids == {"e1_last_successful_update", "e1_failed_updates_24h", "e1_update_interval"}
+
+    def test_update_interval_reports_the_configured_minutes(self):
+        from soliscloud.sensor import SolisUpdateIntervalSensor
+
+        coordinator = _coordinator({})  # built with a 5 minute interval
+        assert SolisUpdateIntervalSensor(coordinator, "e1").native_value == 5.0

@@ -17,12 +17,14 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import (
     PERCENTAGE,
+    EntityCategory,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
     UnitOfEnergy,
     UnitOfFrequency,
     UnitOfPower,
     UnitOfTemperature,
+    UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -31,7 +33,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import SolisConfigEntry
 from .const import DOMAIN, SIGN_CONVENTION_GENERATOR
-from .coordinator import SolisCoordinator
+from .coordinator import FAILURE_WINDOW, SolisCoordinator, service_device_info
 
 _MEASURE = SensorStateClass.MEASUREMENT
 _TOTAL = SensorStateClass.TOTAL_INCREASING
@@ -269,6 +271,10 @@ async def async_setup_entry(
     async_add_entities(
         SolisSensor(coordinator, serial, description) for serial in coordinator.data for description in SENSORS
     )
+    async_add_entities(
+        cls(coordinator, entry.entry_id)
+        for cls in (SolisLastSuccessSensor, SolisFailedUpdatesSensor, SolisUpdateIntervalSensor)
+    )
 
 
 class SolisSensor(CoordinatorEntity[SolisCoordinator], SensorEntity):
@@ -305,3 +311,63 @@ class SolisSensor(CoordinatorEntity[SolisCoordinator], SensorEntity):
             return value
         # Negating 0.0 gives -0.0, which Home Assistant renders as "-0.0".
         return -value if value else 0.0
+
+
+class _SolisHealthSensor(CoordinatorEntity[SolisCoordinator], SensorEntity):
+    """Poll health for the whole account, on the SolisCloud service device."""
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _key: str
+
+    def __init__(self, coordinator: SolisCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry_id}_{self._key}"
+        self._attr_device_info = service_device_info(entry_id)
+
+    @property
+    def available(self) -> bool:
+        # These report on failed polls, so they must stay up while polls fail.
+        return True
+
+
+class SolisLastSuccessSensor(_SolisHealthSensor):
+    _key = "last_successful_update"
+    _attr_name = "Last successful update"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    @property
+    def native_value(self):
+        return self.coordinator.last_update_success_time
+
+
+class SolisFailedUpdatesSensor(_SolisHealthSensor):
+    _key = "failed_updates_24h"
+    _attr_name = "Failed updates (24h)"
+    _attr_icon = "mdi:cloud-alert"
+    _attr_state_class = _MEASURE
+
+    @property
+    def native_value(self) -> int:
+        return self.coordinator.failures_in_window()
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        last = self.coordinator.last_failure_time
+        return {
+            "window_hours": int(FAILURE_WINDOW.total_seconds() // 3600),
+            "last_failure": last.isoformat() if last else None,
+            "last_error": self.coordinator.last_failure_error,
+        }
+
+
+class SolisUpdateIntervalSensor(_SolisHealthSensor):
+    _key = "update_interval"
+    _attr_name = "Update interval"
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+
+    @property
+    def native_value(self) -> float | None:
+        interval = self.coordinator.update_interval
+        return interval.total_seconds() / 60 if interval else None
