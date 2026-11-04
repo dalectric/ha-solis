@@ -36,20 +36,20 @@ from .coordinator import SolisCoordinator
 _MEASURE = SensorStateClass.MEASUREMENT
 _TOTAL = SensorStateClass.TOTAL_INCREASING
 
+
+class Period(StrEnum):
+    """The span an energy counter covers. Sets its display precision."""
+
+    DAY = "day"
+    MONTH = "month"
+    YEAR = "year"
+    LIFETIME = "lifetime"
+
+
 # Display precision only: Home Assistant keeps the full value for long-term
-# statistics, and either can be overridden per entity in the UI.
-DAILY_ENERGY_PRECISION = 1
-PERIOD_ENERGY_PRECISION = 0
-
-
-def _energy_precision(key: str) -> int:
-    """Daily figures to 0.1 kWh; month, year and lifetime totals to whole kWh.
-
-    A daily figure is small enough that a tenth matters. On a four-digit lifetime total
-    a decimal is noise, and the source only reports three significant figures there
-    anyway (7.35 MWh arrives as 7350, not 7350.4).
-    """
-    return DAILY_ENERGY_PRECISION if "today" in key else PERIOD_ENERGY_PRECISION
+# statistics, and precision can be overridden per entity in the UI. Day, month and year
+# counters start each period near zero, so they keep a decimal; lifetime totals do not.
+_PRECISION = {Period.DAY: 1, Period.MONTH: 1, Period.YEAR: 1, Period.LIFETIME: 0}
 
 
 class Flow(StrEnum):
@@ -113,18 +113,18 @@ def _power(key: str, name: str, flow: Flow = Flow.DELIVERS) -> SolisSensorDescri
     )
 
 
-def _energy(key: str, name: str) -> SolisSensorDescription:
+def _energy(key: str, name: str, period: Period) -> SolisSensorDescription:
     return SolisSensorDescription(
         key=key,
         name=name,
         device_class=SensorDeviceClass.ENERGY,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         state_class=_TOTAL,
-        suggested_display_precision=_energy_precision(key),
+        suggested_display_precision=_PRECISION[period],
     )
 
 
-def _net_energy(key: str, name: str) -> SolisSensorDescription:
+def _net_energy(key: str, name: str, period: Period) -> SolisSensorDescription:
     """Signed net energy: a balance, not a meter reading.
 
     state_class TOTAL rather than TOTAL_INCREASING, because a net figure legitimately
@@ -139,7 +139,7 @@ def _net_energy(key: str, name: str) -> SolisSensorDescription:
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         state_class=SensorStateClass.TOTAL,
         flow=Flow.CONSUMES,
-        suggested_display_precision=_energy_precision(key),
+        suggested_display_precision=_PRECISION[period],
     )
 
 
@@ -178,32 +178,32 @@ SENSORS: tuple[SolisSensorDescription, ...] = (
     _power("pow3", "String 3 power"),
     _power("pow4", "String 4 power"),
     # Generation energy
-    _energy("e_today", "Generation today"),
-    _energy("e_month", "Generation this month"),
-    _energy("e_year", "Generation this year"),
-    _energy("e_total", "Generation total"),
+    _energy("e_today", "Generation today", Period.DAY),
+    _energy("e_month", "Generation this month", Period.MONTH),
+    _energy("e_year", "Generation this year", Period.YEAR),
+    _energy("e_total", "Generation total", Period.LIFETIME),
     # Grid energy
     # One-way meters: always positive, Energy dashboard compatible.
-    _energy("grid_purchased_today_energy", "Grid import today"),
-    _energy("grid_purchased_month_energy", "Grid import this month"),
-    _energy("grid_purchased_year_energy", "Grid import this year"),
-    _energy("grid_purchased_total_energy", "Grid import total"),
-    _energy("grid_sell_today_energy", "Grid export today"),
-    _energy("grid_sell_month_energy", "Grid export this month"),
-    _energy("grid_sell_year_energy", "Grid export this year"),
-    _energy("grid_sell_total_energy", "Grid export total"),
+    _energy("grid_purchased_today_energy", "Grid import today", Period.DAY),
+    _energy("grid_purchased_month_energy", "Grid import this month", Period.MONTH),
+    _energy("grid_purchased_year_energy", "Grid import this year", Period.YEAR),
+    _energy("grid_purchased_total_energy", "Grid import total", Period.LIFETIME),
+    _energy("grid_sell_today_energy", "Grid export today", Period.DAY),
+    _energy("grid_sell_month_energy", "Grid export this month", Period.MONTH),
+    _energy("grid_sell_year_energy", "Grid export this year", Period.YEAR),
+    _energy("grid_sell_total_energy", "Grid export total", Period.LIFETIME),
     # Balances: export minus import, signed and convention-aware.
-    _net_energy("grid_exchange_today_energy", "Grid exchange today"),
-    _net_energy("grid_exchange_month_energy", "Grid exchange this month"),
-    _net_energy("grid_exchange_year_energy", "Grid exchange this year"),
-    _net_energy("grid_exchange_total_energy", "Grid exchange total"),
-    _energy("home_load_today_energy", "House consumption today"),
-    _energy("home_load_total_energy", "House consumption total"),
+    _net_energy("grid_exchange_today_energy", "Grid exchange today", Period.DAY),
+    _net_energy("grid_exchange_month_energy", "Grid exchange this month", Period.MONTH),
+    _net_energy("grid_exchange_year_energy", "Grid exchange this year", Period.YEAR),
+    _net_energy("grid_exchange_total_energy", "Grid exchange total", Period.LIFETIME),
+    _energy("home_load_today_energy", "House consumption today", Period.DAY),
+    _energy("home_load_total_energy", "House consumption total", Period.LIFETIME),
     # Battery energy
-    _energy("battery_today_charge_energy", "Battery charged today"),
-    _energy("battery_today_discharge_energy", "Battery discharged today"),
-    _energy("battery_total_charge_energy", "Battery charged total"),
-    _energy("battery_total_discharge_energy", "Battery discharged total"),
+    _energy("battery_today_charge_energy", "Battery charged today", Period.DAY),
+    _energy("battery_today_discharge_energy", "Battery discharged today", Period.DAY),
+    _energy("battery_total_charge_energy", "Battery charged total", Period.LIFETIME),
+    _energy("battery_total_discharge_energy", "Battery discharged total", Period.LIFETIME),
     # Battery state
     SolisSensorDescription(
         key="battery_capacity_soc",
@@ -302,4 +302,7 @@ class SolisSensor(CoordinatorEntity[SolisCoordinator], SensorEntity):
         if value is None:
             return None
         factor = sign_multiplier(self.entity_description.flow, self.coordinator.sign_convention)
-        return value if factor == 1 else value * factor
+        if factor == 1:
+            return value
+        # Negating 0.0 gives -0.0, which Home Assistant renders as "-0.0".
+        return -value if value else 0.0
