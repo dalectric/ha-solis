@@ -16,11 +16,10 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import SolisConfigEntry
 from .const import (
     CONF_SIGN_CONVENTION,
-    DOMAIN,
     SIGN_CONVENTION_GENERATOR,
     SIGN_CONVENTIONS,
 )
-from .coordinator import SolisCoordinator
+from .coordinator import SolisCoordinator, service_device_info
 
 
 async def async_setup_entry(
@@ -45,12 +44,7 @@ class SolisSignConventionSelect(CoordinatorEntity[SolisCoordinator], SelectEntit
         super().__init__(coordinator)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_sign_convention"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "manufacturer": "Solis",
-            "name": "SolisCloud",
-            "entry_type": "service",
-        }
+        self._attr_device_info = service_device_info(entry.entry_id)
 
     @property
     def current_option(self) -> str:

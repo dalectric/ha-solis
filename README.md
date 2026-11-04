@@ -97,6 +97,19 @@ by serial.
   `inverterDetail` per inverter, at ~16s median per call. Three inverters take roughly a
   minute per poll; for more, raise the interval in options.
 
+### Update health
+
+The **SolisCloud** service device carries three diagnostic sensors for the account:
+
+| Sensor | Shows |
+|---|---|
+| Last successful update | Time of the last poll that returned data |
+| Failed updates (24h) | Failed polls in the past 24 hours; attributes `last_failure` and `last_error` |
+| Update interval | Configured polling interval, in minutes |
+
+They stay available while polls fail. The failure count and the last successful update
+are held in memory, so they reset when Home Assistant restarts.
+
 ## Sign convention
 
 The API's raw signs are not consistent across fields:
