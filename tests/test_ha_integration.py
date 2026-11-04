@@ -443,17 +443,17 @@ class TestGridExchange:
 
 
 class TestDisplayPrecision:
-    """Day, month and year energy to 0.1 kWh; lifetime totals to whole kWh."""
+    """Today's energy to 0.1 kWh; month, year and lifetime totals to whole kWh."""
 
     # Spelled out rather than derived from key names, so a misclassified sensor fails.
-    LIFETIME: ClassVar[set[str]] = {
-        "e_total",
-        "grid_purchased_total_energy",
-        "grid_sell_total_energy",
-        "grid_exchange_total_energy",
-        "home_load_total_energy",
-        "battery_total_charge_energy",
-        "battery_total_discharge_energy",
+    DAILY: ClassVar[set[str]] = {
+        "e_today",
+        "grid_purchased_today_energy",
+        "grid_sell_today_energy",
+        "grid_exchange_today_energy",
+        "home_load_today_energy",
+        "battery_today_charge_energy",
+        "battery_today_discharge_energy",
     }
 
     def test_every_energy_sensor_has_the_expected_precision(self):
@@ -461,9 +461,9 @@ class TestDisplayPrecision:
         from soliscloud.sensor import SENSORS
 
         energy = {d.key: d.suggested_display_precision for d in SENSORS if d.device_class is SensorDeviceClass.ENERGY}
-        assert energy.keys() >= self.LIFETIME, f"unknown lifetime keys: {sorted(self.LIFETIME - energy.keys())}"
+        assert energy.keys() >= self.DAILY, f"unknown daily keys: {sorted(self.DAILY - energy.keys())}"
         for key, precision in energy.items():
-            assert precision == (0 if key in self.LIFETIME else 1), key
+            assert precision == (1 if key in self.DAILY else 0), key
 
     def test_native_value_is_not_rounded(self):
         """Precision is display only; statistics must receive the full value."""
