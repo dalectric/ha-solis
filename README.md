@@ -147,8 +147,8 @@ one-way meters (kWh imported, kWh exported), as the Energy dashboard requires fo
 
 | Period | Decimals |
 |---|---|
-| Today | 1 |
-| Month, year, lifetime | 0 |
+| Today, month, year | 1 |
+| Lifetime | 0 |
 
 This is display only: Home Assistant keeps the full value for long-term statistics, and
 precision can be overridden per entity in the UI.

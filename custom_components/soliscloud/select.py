@@ -63,7 +63,7 @@ class SolisSignConventionSelect(CoordinatorEntity[SolisCoordinator], SelectEntit
             "convention": "generator convention" if generator else "load convention",
             "also_known_as": "active sign convention" if generator else "passive sign convention",
             "positive_means": "power produced" if generator else "power consumed",
-            "grid_positive": "exporting" if generator else "importing",
+            "grid_positive": "importing" if generator else "exporting",
             "battery_positive": "discharging" if generator else "charging",
             "pv_positive": "generating" if generator else "never (PV only produces)",
             "note": (

@@ -40,11 +40,11 @@ MIN_SCAN_INTERVAL_MINUTES = 1
 #
 # The two are opposites: p' = -p.
 #
-# SolisCloud itself is not consistent. Measured on a live inverter: pac=+1.369 kW
-# while generating, psum=+1.156 kW while exporting and batteryPower=-0.037 kW while
-# charging all follow the generator convention, but familyLoadPower=+0.19 kW while
-# consuming follows the load convention. This integration normalises everything onto
-# one convention and lets the user pick which.
+# Every component is treated as a supplier to the house. SolisCloud's raw signs are not
+# consistent with that: pac is positive while generating, but psum (exporting),
+# batteryPower (charging) and familyLoadPower (consuming) are positive when energy
+# leaves the house. sensor.Flow records each field's raw meaning; this integration
+# normalises everything onto one convention and lets the user pick which.
 CONF_SIGN_CONVENTION = "sign_convention"
 
 SIGN_CONVENTION_GENERATOR = "generator"
@@ -55,9 +55,8 @@ SIGN_CONVENTIONS = [SIGN_CONVENTION_GENERATOR, SIGN_CONVENTION_LOAD]
 # entry saved by an earlier version keeps working.
 _LEGACY_SIGN_CONVENTIONS = {"consumer": SIGN_CONVENTION_LOAD}
 
-# Generator convention by default: it matches the API's native sign for PV, grid and
-# battery, so out of the box generating, exporting and discharging are all positive.
-# As the reference puts it, "No manufacturer sells a '-5 kilowatt generator.'"
+# Generator convention by default: generating, importing and discharging are positive,
+# so PV output never reads negative.
 DEFAULT_SIGN_CONVENTION = SIGN_CONVENTION_GENERATOR
 
 

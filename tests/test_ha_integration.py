@@ -149,9 +149,9 @@ class TestSignConvention:
     """Sign convention handling -- https://en.wikipedia.org/wiki/Passive_sign_convention
 
     Figures are from a real inverterDetail payload: pac=1.369 kW while generating,
-    psum=1.156 kW while exporting, batteryPower=-0.037 kW while charging and
-    familyLoadPower=0.19 kW while consuming. Note SolisCloud signs the load the
-    opposite way round to everything else, which is what this normalises.
+    psum=1.156 kW while exporting, batteryPower=-0.037 kW while discharging and
+    familyLoadPower=0.19 kW while consuming. Only pac is raw-positive when the
+    component supplies the house; the rest are raw-positive when energy leaves it.
     """
 
     RAW: ClassVar[dict] = {
@@ -231,6 +231,37 @@ class TestSignConvention:
         by_key = {d.key: d for d in SENSORS}
         for key, expected in (("battery_capacity_soc", 96.0), ("inverter_temperature", 43.1), ("u_ac1", 230.5)):
             assert SolisSensor(coordinator, "SN1", by_key[key]).native_value == expected, key
+
+    def test_selector_attributes_match_the_sensor_signs(self):
+        """The selector must describe what the sensors actually output, per convention."""
+        from unittest.mock import MagicMock
+
+        from soliscloud.const import SIGN_CONVENTIONS
+        from soliscloud.select import SolisSignConventionSelect
+
+        # RAW is a snapshot where the grid is exporting and the battery discharging.
+        for convention in SIGN_CONVENTIONS:
+            v = self._values(convention)
+            coordinator = _coordinator({}, convention)
+            attrs = SolisSignConventionSelect(coordinator, MagicMock(entry_id="e1")).extra_state_attributes
+            assert (attrs["grid_positive"] == "exporting") == (v["p_sum"] > 0), convention
+            assert (attrs["battery_positive"] == "discharging") == (v["battery_power"] > 0), convention
+            assert (attrs["pv_positive"] == "generating") == (v["pac"] > 0), convention
+
+    def test_negated_zero_has_no_sign(self):
+        """-0.0 would render as "-0.0" on a dashboard."""
+        import math
+
+        from soliscloud.const import SIGN_CONVENTION_GENERATOR
+        from soliscloud.sensor import SENSORS, SolisSensor
+        from soliscloud.soliscloud_api.models import InverterDetail
+
+        raw = self.RAW | {"psum": 0.0}
+        coordinator = _coordinator({"SN1": InverterDetail.model_validate(raw)}, SIGN_CONVENTION_GENERATOR)
+        d = next(x for x in SENSORS if x.key == "p_sum")
+        value = SolisSensor(coordinator, "SN1", d).native_value
+        assert value == 0.0
+        assert math.copysign(1, value) == 1
 
     def test_every_power_sensor_declares_a_flow(self):
         """A power sensor left at Flow.NONE would silently ignore the convention."""
@@ -412,28 +443,30 @@ class TestGridExchange:
 
 
 class TestDisplayPrecision:
-    """Daily energy to 0.1 kWh, longer periods to whole kWh."""
+    """Day, month and year energy to 0.1 kWh; lifetime totals to whole kWh."""
 
-    def test_daily_energy_shows_one_decimal(self):
+    # Spelled out rather than derived from key names, so a misclassified sensor fails.
+    LIFETIME: ClassVar[set[str]] = {
+        "e_total",
+        "grid_purchased_total_energy",
+        "grid_sell_total_energy",
+        "grid_exchange_total_energy",
+        "home_load_total_energy",
+        "battery_total_charge_energy",
+        "battery_total_discharge_energy",
+    }
+
+    def test_every_energy_sensor_has_the_expected_precision(self):
         from homeassistant.components.sensor import SensorDeviceClass
         from soliscloud.sensor import SENSORS
 
-        daily = [d for d in SENSORS if d.device_class is SensorDeviceClass.ENERGY and "today" in d.key]
-        assert daily
-        for d in daily:
-            assert d.suggested_display_precision == 1, d.key
+        energy = {d.key: d.suggested_display_precision for d in SENSORS if d.device_class is SensorDeviceClass.ENERGY}
+        assert energy.keys() >= self.LIFETIME, f"unknown lifetime keys: {sorted(self.LIFETIME - energy.keys())}"
+        for key, precision in energy.items():
+            assert precision == (0 if key in self.LIFETIME else 1), key
 
-    def test_longer_periods_show_no_decimals(self):
-        from homeassistant.components.sensor import SensorDeviceClass
-        from soliscloud.sensor import SENSORS
-
-        periods = [d for d in SENSORS if d.device_class is SensorDeviceClass.ENERGY and "today" not in d.key]
-        assert periods
-        for d in periods:
-            assert d.suggested_display_precision == 0, d.key
-
-    def test_precision_is_display_only(self):
-        """Statistics keep the full value; only the rendered figure is shortened."""
+    def test_native_value_is_not_rounded(self):
+        """Precision is display only; statistics must receive the full value."""
         from soliscloud.const import SIGN_CONVENTION_GENERATOR
         from soliscloud.sensor import SENSORS, SolisSensor
         from soliscloud.soliscloud_api.models import InverterDetail
@@ -443,9 +476,10 @@ class TestDisplayPrecision:
             "sn": "SN1",
             "stationId": "S",
             "state": 1,
-            "gridSellTodayEnergy": 0.04,
-            "gridSellTodayEnergyStr": "kWh",
+            "gridSellTotalEnergy": 1234.56,
+            "gridSellTotalEnergyStr": "kWh",
         }
         coordinator = _coordinator({"SN1": InverterDetail.model_validate(raw)}, SIGN_CONVENTION_GENERATOR)
-        d = next(x for x in SENSORS if x.key == "grid_sell_today_energy")
-        assert SolisSensor(coordinator, "SN1", d).native_value == 0.04
+        d = next(x for x in SENSORS if x.key == "grid_sell_total_energy")
+        assert d.suggested_display_precision == 0
+        assert SolisSensor(coordinator, "SN1", d).native_value == 1234.56
